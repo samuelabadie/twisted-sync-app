@@ -1,0 +1,18 @@
+name: Trigger Payment Cleanup
+
+on:
+  schedule:
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Cleanup API
+        run: |
+          curl -X GET ${{ secrets.VERCEL_APP_URL }}/api/cleanup-payments \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+          --fail
+

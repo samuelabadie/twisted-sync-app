@@ -11,11 +11,5 @@
       "src": "/api/(.*)",
       "dest": "/src/api/$1.ts"
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/cleanup-payments",
-      "schedule": "*/15 * * * *"
-    }
   ]
 }
