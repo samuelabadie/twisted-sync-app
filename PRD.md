@@ -41,10 +41,9 @@ Construire un backend Node/TypeScript déployé sur Vercel permettant :
 - La cliente édite un Sheet.
 - Le backend lit les données (via Google Service Account).
 - Le backend met à jour des colonnes telles que :
-  - `bookla_service_id`
-  - `webflow_item_id`
-  - `final_price`
-  - `final_duration`
+  - `Bookla_ServiceID`
+  - `Webflow_ID`
+  - `Bookla_UpdatedAt`
 
 
 ### 3.2 Backend : Vercel
@@ -67,7 +66,6 @@ Fonctionnalités clés :
 Pour chaque **service parent** :
 - Un item CMS avec :
   - Nom
-  - Image
   - Descriptions
   - Prix (base)
   - Bookla ID
@@ -98,28 +96,30 @@ Pour chaque **service parent** :
 ## 4. Modèle de données (Google Sheets)
 Une ligne = un service parent **ou** un service option.
 
-### Colonnes recommandées
+### Colonnes (Structure CSV `twisted_template.csv`)
 | Colonne | Type | Description |
-|--------|------|-------------|
-| `service_type` | string | "parent" ou "option" |
-| `parent_key` | string | Identifiant du parent (asap-rocky) |
-| `service_name` | string | Nom affiché |
-| `base_price` | number | Prix de base parent |
-| `base_duration_min` | number | Durée de base parent |
-| `option_type` | string | coupe / shampoing / soin |
-| `option_price_delta` | number | +10, +20, +35 |
-| `option_duration_delta_min` | number | +20, +20, +40 |
-| `final_price` | number | calcul backend |
-| `final_duration_min` | number | calcul backend |
-| `bookla_service_id` | string | généré par backend |
-| `webflow_item_id` | string | généré par backend |
-| `image_url` | string | image |
-| `active` | boolean | visibilité |
-
+|---------|------|-------------|
+| `Webflow_ID` | string | ID de l'item CMS Webflow (généré/mis à jour) |
+| `Webflow_Slug` | string | Identifiant unique du groupe (parent + options) |
+| `Service_Name` | string | Nom du service |
+| `Bookla_ServiceID` | string | ID du service Bookla (généré/mis à jour) |
+| `Duration_Minutes` | number | Durée de base |
+| `Price_EUR` | number | Prix de base |
+| `Category_Slug` | string | Slug de la catégorie |
+| `Bookla_CategoryID` | string | ID de la catégorie Bookla |
+| `Resource_Slug` | string | Slug de la ressource |
+| `Bookla_ResourceID` | string | ID de la ressource Bookla |
+| `Capacity_Spots` | number | Capacité (défaut 1) |
+| `Visible` | boolean | Visibilité (TRUE/FALSE) |
+| `Option_Extra_Slug` | string | Vide pour parent, slug pour option |
+| `Option_Extra_Price` | number | Prix additionnel pour l'option |
+| `Option_Extra_Duration` | number | Durée additionnelle pour l'option |
+| `Bookla_UpdatedAt` | string | Date dernière synchro Bookla |
+| `Notes_Internal` | string | Notes internes |
 
 ### Calculs backend
-- `final_price = base_price + option_price_delta`
-- `final_duration = base_duration_min + option_duration_delta_min`
+- **Parent**: `final_price = Price_EUR`, `final_duration = Duration_Minutes`
+- **Option**: `final_price = Parent.Price_EUR + Option_Extra_Price`, `final_duration = Parent.Duration_Minutes + Option_Extra_Duration`
 
 ---
 
@@ -186,27 +186,26 @@ Toutes les X minutes :
 - `cancelBooking(id)`
 
 ### 6.3 `WebflowClient`
-- `findItemBySlug(slug)`
-- `createItem(payload)`
-- `updateItem(itemId, payload)`
+- `findItemBySlug(collectionId, slug)`
+- `createItem(collectionId, payload)`
+- `updateItem(collectionId, itemId, payload)`
 
 ### 6.4 `StripeClient`
 - `createPaymentIntent(amount, metadata)`
 
 ---
 
-## 7. Algorithme parent + options (important)
-Pour chaque `parent_key` :
-1. Lire ligne parent.
-2. Trouver toutes les options qui partagent `parent_key`.
-3. Calculer 4 services :
-   - parent
-   - coupe (base + 10€, base + 20min)
-   - shampoing démêlant (base + 20€, +20min)
-   - shampoing + soin (+35€, +40min)
-4. Créer ou mettre à jour **4 services Bookla distincts**.
-5. Sauvegarder les 4 Bookla IDs dans les lignes correspondantes.
-6. Créer ou mettre à jour **1 item Webflow** contenant les 4 IDs.
+## 7. Algorithme parent + options (Implémentation)
+Pour chaque groupe défini par `Webflow_Slug` :
+1. Identifier la ligne "Parent" (où `Option_Extra_Slug` est vide).
+2. Identifier les lignes "Option" (où `Option_Extra_Slug` est rempli).
+3. Calculer les valeurs finales pour chaque entrée :
+   - **Parent** : valeurs de base (`Price_EUR`, `Duration_Minutes`).
+   - **Option** : valeurs du parent + deltas (`Option_Extra_Price`, `Option_Extra_Duration`).
+4. Créer ou mettre à jour **un service Bookla distinct** pour chaque entrée (Parent et Options).
+5. Sauvegarder les `Bookla_ServiceID` dans les lignes correspondantes du Sheet.
+6. Pour le **Parent uniquement** : Créer ou mettre à jour **1 item CMS Webflow**.
+   - L'item Webflow agrège les informations (nom, prix de base) et stocke les IDs Bookla correspondants (via champ personnalisé).
 
 ---
 
@@ -214,7 +213,7 @@ Pour chaque `parent_key` :
 - Repo GitHub → Vercel.
 - Routes serverless.
 - Cron Vercel pour `/api/sync-services` et `/api/cleanup-payments`.
-- Variables d’environnement complètes.
+- Variables d’environnement complètes (incluant `WEBFLOW_COLLECTION_ID`).
 
 ---
 
