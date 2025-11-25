@@ -1,4 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { buffer } from 'micro';
 import { StripeClient } from '../lib/stripe';
 import { BooklaClient } from '../lib/bookla';
 import { validateEnv } from '../utils/validation';
@@ -11,14 +12,6 @@ export const config = {
   },
 };
 
-async function buffer(readable: any) {
-  const chunks = [];
-  for await (const chunk of readable) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-  }
-  return Buffer.concat(chunks);
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -30,27 +23,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   let event;
   try {
+    // Use micro to get the raw buffer safely
     const buf = await buffer(req);
     const sig = req.headers['stripe-signature'] as string;
+    
+    if (!sig) throw new Error('No Stripe signature found');
+
     event = stripe.constructEvent(buf, sig, env.STRIPE_WEBHOOK_SECRET);
   } catch (err: any) {
     logger.error(`Webhook signature verification failed: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+
   try {
-    if (event.type === 'payment_intent.succeeded') {
-      const paymentIntent = event.data.object as any;
-      const bookingId = paymentIntent.metadata.bookingId;
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object as any;
+      const bookingId = session.metadata?.bookingId;
 
       if (bookingId) {
-        logger.info(`Payment succeeded for booking ${bookingId}. Confirming...`);
+        logger.info(`Checkout session completed for booking ${bookingId}. Confirming...`);
         await bookla.confirmBooking(bookingId);
         logger.info(`Booking ${bookingId} confirmed.`);
-
-        // TODO: Update Google Sheet status if needed
+        
+        // Note: Sheet update skipped as per TECHNICAL_NOTES.md (No Bookings sheet)
       } else {
-        logger.warn('PaymentIntent succeeded but no bookingId in metadata');
+        logger.warn('Checkout Session completed but no bookingId in metadata');
+      }
+    } else if (event.type === 'payment_intent.succeeded') {
+      // Legacy / Backup handler
+      const paymentIntent = event.data.object as any;
+      const bookingId = paymentIntent.metadata?.bookingId;
+      if (bookingId) {
+         logger.info(`PaymentIntent succeeded for ${bookingId}. (Handled via session usually)`);
       }
     }
 

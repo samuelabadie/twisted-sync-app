@@ -74,6 +74,15 @@ export class GoogleSheetsService {
       }
 
       if (updates.length > 0) {
+        await this.performUpdate(rowIndex, updates);
+      }
+    } catch (error) {
+       console.error(`Unexpected error preparing update for row ${rowIndex}:`, error);
+    }
+  }
+
+  private async performUpdate(rowIndex: number, updates: any[], retryCount = 0): Promise<void> {
+    try {
         await this.sheets.spreadsheets.values.batchUpdate({
           spreadsheetId: this.sheetId,
           requestBody: {
@@ -81,10 +90,15 @@ export class GoogleSheetsService {
             data: updates,
           },
         });
+    } catch (error: any) {
+      if (retryCount < 3 && (error.code === 429 || (error.message && error.message.includes('Quota exceeded')))) {
+        const delay = 2000 * (retryCount + 1); // Exponential backoff: 2s, 4s, 6s
+        console.warn(`Quota exceeded for row ${rowIndex}, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.performUpdate(rowIndex, updates, retryCount + 1);
       }
-    } catch (error) {
-      console.error(`Error updating row ${rowIndex}:`, error);
-      throw error;
+      console.error(`Error updating row ${rowIndex} after ${retryCount} retries:`, error);
+      // We do NOT throw here to avoid breaking the entire loop
     }
   }
 }

@@ -9,6 +9,7 @@ export const envSchema = z.object({
   BOOKLA_COMPANY_ID: z.string().min(1, "BOOKLA_COMPANY_ID is required"),
   WEBFLOW_API_TOKEN: z.string().min(1, "WEBFLOW_API_TOKEN is required"),
   WEBFLOW_SITE_ID: z.string().min(1, "WEBFLOW_SITE_ID is required"),
+  WEBFLOW_COLLECTION_ID: z.string().min(1, "WEBFLOW_COLLECTION_ID is required"),
   SYNC_SECRET: z.string().min(1, "SYNC_SECRET is required"),
 });
 

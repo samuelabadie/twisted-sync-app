@@ -106,5 +106,5 @@ Webflow_ID,Webflow_Slug,Service_Name,Bookla_ServiceID,Duration_Minutes,Price_EUR
 690a3227ea6ad0beaa1a883a,vanille-cheveux-naturels,"Vanille cheveux naturels",8892ac63-1e0b-4be5-a362-8953f98e8c52,150,100,,,,,1,FALSE,shampoing-et-soin,35,40,,
 690a322aa46ad93693f9dc23,vanilles,"Vanilles",a3b41a00-a28e-4307-b552-efb29e9dffc9,120,80,,,,,1,TRUE,,0,0,,
 690a322a000a9a4579bc8a75,vanilles,"Vanilles",a66b8484-db4a-473b-8bae-6eaca1ccbda0,120,80,hommes,,,,1,FALSE,coupe-des-pointes,10,20,,
-690a322a93dbdb7141308710,vanilles,"Vanilles",c851293f-13d5-49c1-888c-60fad923fe1f,120,80,hommes,,,,1,FALSE,shampoing-dmlant,20,20,,
-690a322ac035a1d5a8346144,vanilles,"Vanilles",8db370ba-77e7-4716-87d3-537c86088c5e,120,80,hommes,,,,1,FALSE,shampoing-et-soin,35,40,,
+690a322a93dbdb7141308710,vanilles,"Vanilles",,120,80,hommes,,,,1,FALSE,shampoing-dmlant,20,20,,
+690a322ac035a1d5a8346144,vanilles,"Vanilles",,120,80,hommes,,,,1,FALSE,shampoing-et-soin,35,40,,

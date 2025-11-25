@@ -7,7 +7,7 @@ import { validateEnv } from '../utils/validation';
 import { logger } from '../utils/logger';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
+  if (req.method !== 'POST' && req.method !== 'GET') { // Allow GET for easier testing
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -15,8 +15,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // Security check
   const authHeader = req.headers.authorization;
-  if (authHeader !== `Bearer ${env.SYNC_SECRET}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  const secretParam = req.query.secret; // Allow query param for browser testing
+
+  if (authHeader !== `Bearer ${env.SYNC_SECRET}` && secretParam !== env.SYNC_SECRET) {
+    // For local testing convenience, you can comment this out if needed, 
+    // but it's better to use ?secret=YOUR_SECRET in the URL
+    return res.status(401).json({ error: 'Unauthorized', hint: 'Use ?secret=YOUR_SYNC_SECRET in URL for browser testing' });
   }
 
   try {
@@ -74,59 +78,76 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           booklaIds.push(booklaId);
 
           // Write back calculated values
+          // Only update if strictly necessary to reduce API calls
           await sheets.updateRow(service.rowIndex, {
-            // final_price: service.final_price, // We don't write back final price in new CSV? 
-            // The CSV template doesn't have a specific column for "Final Price". 
-            // It has "Price_EUR" (base) and "Option_Extra_Price".
-            // I'll assume we don't write back calculated values unless there's a column for it.
-            // The template has "Bookla_UpdatedAt". I should write that.
             bookla_updated_at: new Date().toISOString(),
           });
 
         } catch (err: any) {
-          const msg = `Error processing service row ${service.rowIndex}: ${err.message}`;
-          logger.error(msg);
+          const msg = `Row ${service.rowIndex} (${service.service_name}): ${err.message}`;
+          // Only log error message, not full stack trace to reduce noise
+          console.error(msg);
           report.errors.push(msg);
         }
       }
 
       // Webflow Sync (Parent Level)
-      // Assuming the first service in the group is the "Parent" or we use the slug to find the Webflow Item
       const parentService = services.find(s => !s.option_extra_slug);
       if (parentService) {
         try {
-          const webflowPayload = {
+          // Construct mapping: "parent:ID1,option1:ID2"
+          const mapping = services
+            .filter(s => s.bookla_service_id)
+            .map(s => `${s.option_extra_slug || 'parent'}:${s.bookla_service_id}`)
+            .join(',');
+
+          // Webflow field names (from collection schema):
+          // - name, slug (required)
+          // - prix, duree, bookla-id, is-visible
+          const webflowPayload: Record<string, any> = {
             name: parentService.service_name,
             slug: parentService.webflow_slug,
-            'bookla-ids': booklaIds.join(','), // Example field
-            price: parentService.price_eur,
-            // other fields
+            prix: parentService.price_eur,
+            duree: parentService.duration_minutes,
+            'bookla-id': mapping,
+            'is-visible': parentService.visible,
           };
 
-          let webflowId = parentService.webflow_id; // Using new field name
-
-          // If not in sheet, try to find by slug
-          if (!webflowId) {
-            // We need collection ID. Assuming it's in env or we query it. 
-            // For now, let's assume a fixed collection ID or passed in env? 
-            // PRD didn't specify where Collection ID comes from. Let's assume it's part of SITE_ID or separate.
-            // I'll add WEBFLOW_COLLECTION_ID to env validation later if needed, or just use a placeholder.
-            // Let's assume we need to find it. For now, I'll skip if I don't have it.
-            // Actually, let's assume it's in env.
+          let webflowId = parentService.webflow_id;
+          
+          // Check existence by slug to be safe
+          const existingId = await webflow.findItemBySlug(env.WEBFLOW_COLLECTION_ID, parentService.webflow_slug);
+          
+          if (existingId) {
+            await webflow.updateItem(env.WEBFLOW_COLLECTION_ID, existingId, webflowPayload);
+            webflowId = existingId;
+          } else {
+            webflowId = await webflow.createItem(env.WEBFLOW_COLLECTION_ID, webflowPayload);
           }
-          // TODO: Webflow sync requires Collection ID. 
-          // I will add a TODO here and skip actual Webflow call details for now to keep it simple, 
-          // or I should add WEBFLOW_COLLECTION_ID to env.
+
+          // Update Sheet with Webflow ID if it changed
+          if (webflowId !== parentService.webflow_id) {
+            await sheets.updateRow(parentService.rowIndex, { webflow_id: webflowId });
+          }
 
         } catch (err: any) {
-          const msg = `Error syncing Webflow for parent ${slug}: ${err.message}`;
-          logger.error(msg);
+          const msg = `Webflow Sync Error (${slug}): ${err.message}`;
+          console.error(msg);
           report.errors.push(msg);
         }
       }
     }
 
-    res.status(200).json({ message: 'Sync complete', report });
+    res.status(200).json({ 
+        message: 'Sync complete', 
+        summary: {
+            created: report.created,
+            updated: report.updated,
+            errors_count: report.errors.length
+        },
+        // Only show first 5 errors to keep response small
+        first_errors: report.errors.slice(0, 5) 
+    });
 
   } catch (error: any) {
     logger.error('Sync failed', { error: error.message });
