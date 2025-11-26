@@ -15,67 +15,107 @@ export class BooklaClient {
     });
   }
 
+  /**
+   * Convert minutes to ISO 8601 duration format
+   * Examples: 60 -> PT1H, 90 -> PT1H30M, 120 -> PT2H, 45 -> PT45M
+   */
+  private minutesToISO8601(minutes: number): string {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    
+    if (hours > 0 && mins > 0) {
+      return `PT${hours}H${mins}M`;
+    } else if (hours > 0) {
+      return `PT${hours}H`;
+    } else {
+      return `PT${mins}M`;
+    }
+  }
+
   async createService(payload: any): Promise<string> {
     try {
-      // Rename title to name if present, as Bookla requires name
-      // Add default color and type if missing (required by Bookla)
-      const { title, ...rest } = payload;
-      const data = { 
-        name: title || payload.name, 
-        color: payload.color || '#000000', // Default black
-        type: 'fixed', // CHANGED: 'service' seems to be invalid, trying 'fixed' based on debug output
-        settings: { // Adding default settings structure often required for 'fixed' type
-            currency: 'EUR',
-            duration: `PT${(payload.duration || 60)}M`, // Duration in ISO 8601 format often required
-            bookingPolicy: 'instant',
-            timeInterval: 'PT30M'
-        },
-        price: payload.price, // Send price directly at root if that's where it was before
-        ...rest 
+      const name = payload.title || payload.name;
+      const durationMinutes = payload.duration || 60;
+      
+      // Build settings with proper ISO 8601 duration format
+      const settings: any = {
+        currency: 'EUR',
+        bookingPolicy: 'instant',
+        duration: this.minutesToISO8601(durationMinutes),
+        timeInterval: 'PT30M',
       };
       
-      // If the API expects simple duration/price numbers at root (as per our GET test earlier showing just number)
-      // we keep them. But 'type_invalid' suggests the 'type' value itself is wrong.
-      // The GET debug showed: "type": "fixed" for existing services.
-      // So we MUST use "fixed", not "service".
-      data.type = 'fixed';
+      // Add buffers if specified (default 15 min before and after)
+      if (payload.bufferBefore !== undefined) {
+        settings.bufferBefore = this.minutesToISO8601(payload.bufferBefore);
+      } else {
+        settings.bufferBefore = 'PT15M'; // Default 15 min buffer before
+      }
+      
+      if (payload.bufferAfter !== undefined) {
+        settings.bufferAfter = this.minutesToISO8601(payload.bufferAfter);
+      } else {
+        settings.bufferAfter = 'PT15M'; // Default 15 min buffer after
+      }
+      
+      const data = {
+        name,
+        color: payload.color || '#CFC4E8', // Nice purple color like existing services
+        type: 'fixed',
+        settings,
+      };
       
       const response = await this.client.post(`/companies/${this.companyId}/services`, data);
-      return response.data.id;
-    } catch (error) {
-      console.error('Error creating Bookla service:', error);
+      const serviceId = response.data.id;
+      
+      // Create price rule if price is provided
+      if (payload.price !== undefined && payload.price > 0) {
+        await this.createPriceRule(serviceId, payload.price);
+      }
+      
+      return serviceId;
+    } catch (error: any) {
+      console.error('Error creating Bookla service:', error.response?.data || error.message);
       throw error;
     }
   }
 
   async updateService(serviceId: string, payload: any): Promise<void> {
     try {
-      // Rename title to name if present
-      // Ensure color and type are present if required on update
-      const { title, ...rest } = payload;
-      const data = { 
-        name: title || payload.name, 
-        // color: payload.color || '#000000', // Uncomment if update also fails on color
-        // type: payload.type || 'service',   // Uncomment if update also fails on type
-        ...rest 
-      };
+      const data: any = {};
+      
+      // Name
+      if (payload.title || payload.name) {
+        data.name = payload.title || payload.name;
+      }
+      
+      // Color
+      if (payload.color) {
+        data.color = payload.color;
+      }
+      
+      // Settings (duration, buffers)
+      if (payload.duration !== undefined || payload.bufferBefore !== undefined || payload.bufferAfter !== undefined) {
+        data.settings = {};
+        
+        if (payload.duration !== undefined) {
+          data.settings.duration = this.minutesToISO8601(payload.duration);
+        }
+        if (payload.bufferBefore !== undefined) {
+          data.settings.bufferBefore = this.minutesToISO8601(payload.bufferBefore);
+        }
+        if (payload.bufferAfter !== undefined) {
+          data.settings.bufferAfter = this.minutesToISO8601(payload.bufferAfter);
+        }
+      }
 
-      // Remove unnecessary fields that might cause errors if they are empty or invalid
-      const cleanData: any = {};
-      if (data.name) cleanData.name = data.name;
-      if (data.price !== undefined) cleanData.price = data.price;
-      if (data.duration !== undefined) cleanData.duration = data.duration;
-      if (data.color) cleanData.color = data.color;
-      // Add other fields explicitly if needed, rather than spreading ...rest which might contain garbage
-
-      // Use PATCH instead of PUT as per debug results
-      await this.client.patch(`/companies/${this.companyId}/services/${serviceId}`, cleanData);
+      // Use PATCH to update
+      await this.client.patch(`/companies/${this.companyId}/services/${serviceId}`, data);
     } catch (error: any) {
-      // Log detailed error data for 400 Bad Request
       if (error.response && error.response.status === 400) {
         console.error(`Bookla 400 error for service ${serviceId}. Payload:`, JSON.stringify(payload), 'Response:', JSON.stringify(error.response.data));
       }
-      console.error(`Error updating Bookla service ${serviceId}:`, error);
+      console.error(`Error updating Bookla service ${serviceId}:`, error.response?.data || error.message);
       throw error;
     }
   }
@@ -107,6 +147,88 @@ export class BooklaClient {
       console.error('Error fetching services from Bookla:', error);
       throw error;
     }
+  }
+
+  async deleteService(serviceId: string): Promise<void> {
+    try {
+      await this.client.delete(`/companies/${this.companyId}/services/${serviceId}`);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        // Already deleted, that's fine
+        return;
+      }
+      console.error(`Error deleting Bookla service ${serviceId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get price rules for a service
+   */
+  async getPriceRules(serviceId: string): Promise<any[]> {
+    try {
+      const response = await this.client.get(`/companies/${this.companyId}/services/${serviceId}/prices`);
+      return response.data.rules || [];
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return [];
+      }
+      console.error(`Error getting price rules for service ${serviceId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a price rule for a service
+   * @param serviceId - The service ID
+   * @param priceEur - Price in EUR (e.g., 150 for 150€)
+   */
+  async createPriceRule(serviceId: string, priceEur: number): Promise<string> {
+    try {
+      const priceCents = Math.round(priceEur * 100); // Convert EUR to cents
+      const response = await this.client.post(`/companies/${this.companyId}/services/${serviceId}/prices`, {
+        type: 'fixed',
+        price: { price: priceCents }
+      });
+      return response.data.id;
+    } catch (error: any) {
+      console.error(`Error creating price rule for service ${serviceId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a price rule
+   */
+  async deletePriceRule(serviceId: string, priceRuleId: string): Promise<void> {
+    try {
+      await this.client.delete(`/companies/${this.companyId}/services/${serviceId}/prices/${priceRuleId}`);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return; // Already deleted
+      }
+      console.error(`Error deleting price rule ${priceRuleId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Set price for a service (creates or updates price rule)
+   * Since Bookla doesn't support updating, we delete existing and create new
+   */
+  async setServicePrice(serviceId: string, priceEur: number): Promise<void> {
+    // Get existing price rules
+    const existingRules = await this.getPriceRules(serviceId);
+    
+    // Delete all existing fixed price rules
+    for (const rule of existingRules) {
+      if (rule.type === 'fixed') {
+        await this.deletePriceRule(serviceId, rule.id);
+      }
+    }
+    
+    // Create new price rule
+    await this.createPriceRule(serviceId, priceEur);
   }
 
   async getPendingBookings(): Promise<any[]> {

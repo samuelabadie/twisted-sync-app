@@ -2,12 +2,11 @@ import { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleSheetsService } from '../lib/google-sheets';
 import { BooklaClient } from '../lib/bookla';
 import { WebflowClient } from '../lib/webflow';
-import { SyncLogic } from '../lib/sync-logic';
 import { validateEnv } from '../utils/validation';
 import { logger } from '../utils/logger';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST' && req.method !== 'GET') { // Allow GET for easier testing
+  if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -15,11 +14,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // Security check
   const authHeader = req.headers.authorization;
-  const secretParam = req.query.secret; // Allow query param for browser testing
+  const secretParam = req.query.secret;
 
   if (authHeader !== `Bearer ${env.SYNC_SECRET}` && secretParam !== env.SYNC_SECRET) {
-    // For local testing convenience, you can comment this out if needed, 
-    // but it's better to use ?secret=YOUR_SECRET in the URL
     return res.status(401).json({ error: 'Unauthorized', hint: 'Use ?secret=YOUR_SYNC_SECRET in URL for browser testing' });
   }
 
@@ -31,126 +28,160 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const bookla = new BooklaClient(env.BOOKLA_API_KEY, env.BOOKLA_COMPANY_ID);
     const webflow = new WebflowClient(env.WEBFLOW_API_TOKEN, env.WEBFLOW_SITE_ID);
 
-    // 1. Read Sheet
-    const rawServices = await sheets.getServices();
-    logger.info(`Fetched ${rawServices.length} rows from Sheet`);
+    // 1. Read Sheet (source of truth)
+    const sheetServices = await sheets.getServices();
+    logger.info(`Fetched ${sheetServices.length} rows from Sheet`);
 
-    // 2. Process Logic
-    const groupedServices = SyncLogic.processServices(rawServices);
+    // 2. Pre-fetch all Webflow items (indexed by bookla-id)
+    logger.info('Fetching Webflow items...');
+    await webflow.getAllItems(env.WEBFLOW_COLLECTION_ID);
+
+    // 3. Get all Bookla services for validation
+    logger.info('Fetching Bookla services...');
+    const booklaServices = await bookla.getServices();
+    const booklaServiceIds = new Set(booklaServices.map((s: any) => s.id));
 
     const report = {
-      created: 0,
-      updated: 0,
+      checked: 0,
+      bookla_created: 0,
+      bookla_updated: 0,
+      webflow_created: 0,
+      webflow_updated: 0,
+      sheet_updated: 0,
+      skipped: 0,
       errors: [] as string[],
     };
 
-    // 3. Sync Loop
-    for (const [slug, services] of groupedServices) {
-      // We need to collect IDs for Webflow
-      const booklaIds: string[] = [];
+    // 4. Process each service from Sheet
+    for (const service of sheetServices) {
+      report.checked++;
+      const serviceName = service.service_name;
 
-      for (const service of services) {
-        try {
-          // Bookla Sync
+      try {
+        // === BOOKLA SYNC ===
+        let booklaId = service.bookla_service_id;
+
+        if (booklaId) {
+          // Verify it still exists in Bookla
+          if (!booklaServiceIds.has(booklaId)) {
+            // Bookla ID is stale, need to create new
+            logger.warn(`Bookla ID ${booklaId} for "${serviceName}" no longer exists, will recreate`);
+            booklaId = undefined;
+          }
+        }
+
+        if (!booklaId) {
+          // Create in Bookla
           const booklaPayload = {
-            title: service.service_name + (service.option_extra_slug ? ` (${service.option_extra_slug})` : ''),
-            duration: service.final_duration_min,
-            price: service.final_price,
-            // Add other fields as needed
+            title: serviceName,
+            duration: service.final_duration_min || service.duration_minutes,
+            price: service.final_price || service.price_eur,
+          };
+          booklaId = await bookla.createService(booklaPayload);
+          
+          // Write back to Sheet
+          await sheets.updateRow(service.rowIndex, { bookla_service_id: booklaId });
+          report.bookla_created++;
+          report.sheet_updated++;
+          logger.info(`Created Bookla service for "${serviceName}": ${booklaId}`);
+        }
+        // Note: We don't update Bookla if it already exists (Sheet is source of truth for IDs only)
+
+        // === WEBFLOW SYNC ===
+        let webflowId = service.webflow_id;
+        
+        // Strategy:
+        // 1. If we have a webflow_id in Sheet, verify it exists
+        // 2. If not, search by bookla-id
+        // 3. If still not found, create new
+
+        let webflowItem = null;
+
+        if (webflowId) {
+          // Verify the webflow_id still exists
+          webflowItem = await webflow.getItemById(env.WEBFLOW_COLLECTION_ID, webflowId);
+          if (!webflowItem) {
+            logger.warn(`Webflow ID ${webflowId} for "${serviceName}" no longer exists`);
+            webflowId = undefined;
+          }
+        }
+
+        if (!webflowId) {
+          // Search by bookla-id
+          webflowItem = await webflow.findItemByBooklaId(env.WEBFLOW_COLLECTION_ID, booklaId);
+          if (webflowItem) {
+            webflowId = webflowItem.id;
+            // Update Sheet with found webflow_id
+            await sheets.updateRow(service.rowIndex, { webflow_id: webflowId });
+            report.sheet_updated++;
+            logger.info(`Found existing Webflow item for "${serviceName}" by bookla-id: ${webflowId}`);
+          }
+        }
+
+        if (webflowId) {
+          // Item exists, nothing to do (we don't update Webflow from Sheet)
+          report.skipped++;
+        } else {
+          // Need to create in Webflow
+          const slug = service.webflow_slug || serviceName.toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-|-$/g, '');
+
+          const webflowPayload = {
+            name: serviceName,
+            slug: `svc-${slug}`, // Prefix to avoid conflicts
+            prix: service.final_price || service.price_eur || 0,
+            duree: service.final_duration_min || service.duration_minutes || 0,
+            'bookla-id': booklaId,
+            'is-visible': service.visible !== false,
           };
 
-          let booklaId = service.bookla_service_id;
-
-          if (booklaId) {
-            // Update
-            await bookla.updateService(booklaId, booklaPayload);
-            report.updated++;
-          } else {
-            // Create
-            booklaId = await bookla.createService(booklaPayload);
-            service.bookla_service_id = booklaId;
-            report.created++;
-
-            // Write back ID to Sheet immediately (or batch later)
-            await sheets.updateRow(service.rowIndex, { bookla_service_id: booklaId });
+          try {
+            const newWebflowId = await webflow.createItem(env.WEBFLOW_COLLECTION_ID, webflowPayload);
+            await sheets.updateRow(service.rowIndex, { webflow_id: newWebflowId });
+            report.webflow_created++;
+            report.sheet_updated++;
+            logger.info(`Created Webflow item for "${serviceName}": ${newWebflowId}`);
+          } catch (err: any) {
+            // If slug conflict, try with bookla ID suffix
+            if (err.response?.status === 400) {
+              webflowPayload.slug = `svc-${slug}-${booklaId.slice(-6)}`;
+              const newWebflowId = await webflow.createItem(env.WEBFLOW_COLLECTION_ID, webflowPayload);
+              await sheets.updateRow(service.rowIndex, { webflow_id: newWebflowId });
+              report.webflow_created++;
+              report.sheet_updated++;
+              logger.info(`Created Webflow item for "${serviceName}" (with suffix): ${newWebflowId}`);
+            } else {
+              throw err;
+            }
           }
-
-          booklaIds.push(booklaId);
-
-          // Write back calculated values
-          // Only update if strictly necessary to reduce API calls
-          await sheets.updateRow(service.rowIndex, {
-            bookla_updated_at: new Date().toISOString(),
-          });
-
-        } catch (err: any) {
-          const msg = `Row ${service.rowIndex} (${service.service_name}): ${err.message}`;
-          // Only log error message, not full stack trace to reduce noise
-          console.error(msg);
-          report.errors.push(msg);
         }
-      }
 
-      // Webflow Sync (Parent Level)
-      const parentService = services.find(s => !s.option_extra_slug);
-      if (parentService) {
-        try {
-          // Construct mapping: "parent:ID1,option1:ID2"
-          const mapping = services
-            .filter(s => s.bookla_service_id)
-            .map(s => `${s.option_extra_slug || 'parent'}:${s.bookla_service_id}`)
-            .join(',');
-
-          // Webflow field names (from collection schema):
-          // - name, slug (required)
-          // - prix, duree, bookla-id, is-visible
-          const webflowPayload: Record<string, any> = {
-            name: parentService.service_name,
-            slug: parentService.webflow_slug,
-            prix: parentService.price_eur,
-            duree: parentService.duration_minutes,
-            'bookla-id': mapping,
-            'is-visible': parentService.visible,
-          };
-
-          let webflowId = parentService.webflow_id;
-          
-          // Check existence by slug to be safe
-          const existingId = await webflow.findItemBySlug(env.WEBFLOW_COLLECTION_ID, parentService.webflow_slug);
-          
-          if (existingId) {
-            await webflow.updateItem(env.WEBFLOW_COLLECTION_ID, existingId, webflowPayload);
-            webflowId = existingId;
-          } else {
-            webflowId = await webflow.createItem(env.WEBFLOW_COLLECTION_ID, webflowPayload);
-          }
-
-          // Update Sheet with Webflow ID if it changed
-          if (webflowId !== parentService.webflow_id) {
-            await sheets.updateRow(parentService.rowIndex, { webflow_id: webflowId });
-          }
-
-        } catch (err: any) {
-          const msg = `Webflow Sync Error (${slug}): ${err.message}`;
-          console.error(msg);
-          report.errors.push(msg);
-        }
+      } catch (err: any) {
+        const msg = `Row ${service.rowIndex} (${serviceName}): ${err.message}`;
+        logger.error(msg);
+        report.errors.push(msg);
       }
     }
 
-    res.status(200).json({ 
-        message: 'Sync complete', 
-        summary: {
-            created: report.created,
-            updated: report.updated,
-            errors_count: report.errors.length
-        },
-        // Only show first 5 errors to keep response small
-        first_errors: report.errors.slice(0, 5) 
+    logger.info('Sync complete', report);
+
+    res.status(200).json({
+      message: 'Sync complete',
+      summary: {
+        checked: report.checked,
+        bookla_created: report.bookla_created,
+        webflow_created: report.webflow_created,
+        sheet_updated: report.sheet_updated,
+        skipped: report.skipped,
+        errors_count: report.errors.length,
+      },
+      first_errors: report.errors.slice(0, 5),
     });
 
   } catch (error: any) {
     logger.error('Sync failed', { error: error.message });
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
 }

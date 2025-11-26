@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --color-gold: #c9a962;
+  --color-gold-light: #e8d5a3;
+  --color-gold-dark: #a08340;
+  
+  --color-twisted-50: #fdf8f6;
+  --color-twisted-100: #f2e8e5;
+  --color-twisted-200: #eaddd7;
+  --color-twisted-300: #e0cec7;
+  --color-twisted-400: #d2bab0;
+  --color-twisted-500: #bfa094;
+  --color-twisted-600: #a18072;
+  --color-twisted-700: #977669;
+  --color-twisted-800: #846358;
+  --color-twisted-900: #43302b;
+  
+  --font-display: 'Playfair Display', serif;
+  --font-body: 'DM Sans', sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1c1917;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #44403c;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #57534e;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201, 169, 98, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(201, 169, 98, 0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+.animate-pulse-gold {
+  animation: pulse-gold 2s infinite;
+}
