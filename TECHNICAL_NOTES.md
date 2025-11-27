@@ -41,6 +41,75 @@ L'API `/api/test-webflow` permet de retrouver cet ID facilement si besoin.
 L'API Google Sheets est capricieuse avec le formatage de la clé privée (`private_key`) dans les variables d'environnement.
 - **Règle d'or** : Le JSON `GOOGLE_CREDS` dans le `.env` doit être **minifié sur une seule ligne**. Tout saut de ligne casse le parsing.
 
+## 5. Compatibilité Next.js 16 / Turbopack (Production)
+
+### Remplacement de `sib-api-v3-sdk` par l'API HTTP Brevo
+
+**Problème :**
+Le SDK officiel Brevo (anciennement Sendinblue) `sib-api-v3-sdk` utilise un format de module AMD/UMD incompatible avec **Turbopack** (le bundler de Next.js 16+). Le build échouait avec l'erreur :
+```
+Module not found: Can't resolve 'sib-api-v3-sdk'
+```
+
+**Solution :**
+Remplacement du SDK par des appels HTTP directs à l'API Brevo dans `src/utils/email.ts` :
+```typescript
+const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+  method: 'POST',
+  headers: {
+    'accept': 'application/json',
+    'api-key': this.apiKey,
+    'content-type': 'application/json',
+  },
+  body: JSON.stringify({
+    sender: { name, email },
+    to: [{ email: to }],
+    subject,
+    htmlContent,
+    textContent,
+  }),
+});
+```
+- **Avantage** : Aucune dépendance externe, compatible avec tous les bundlers, code plus léger.
+- **Note** : Le package `sib-api-v3-sdk` est de toute façon **déprécié** par npm.
+
+### Initialisation "Lazy" de Stripe
+
+**Problème :**
+L'initialisation de Stripe au niveau du module (top-level) échouait au build :
+```typescript
+// ❌ Échoue au build car STRIPE_SECRET_KEY n'existe pas à ce moment
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { ... })
+```
+Erreur : `Neither apiKey nor config.authenticator provided`
+
+Les variables d'environnement ne sont pas disponibles lors de la phase de "page data collection" de Next.js.
+
+**Solution :**
+Encapsuler l'initialisation dans une fonction appelée uniquement au runtime :
+```typescript
+// ✅ Initialisation lazy - appelée seulement quand la route est invoquée
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: '2025-11-17.clover',
+  })
+}
+
+export async function POST(request: NextRequest) {
+  const stripe = getStripe()
+  // ...
+}
+```
+- **Impact** : Appliqué dans `app/api/bookla-webhook/route.ts` et `app/api/stripe-webhook/route.ts`.
+
+### Version de l'API Stripe
+
+La version du SDK Stripe installée (`stripe@20.x`) requiert une version d'API spécifique.
+- **Ancienne** : `2025-04-30.basil` (incompatible)
+- **Actuelle** : `2025-11-17.clover` ✅
+
+En cas de mise à jour du package Stripe, vérifier la version d'API attendue via les types TypeScript.
+
 ---
-*Dernière mise à jour : 24 Novembre 2025*
+*Dernière mise à jour : 27 Novembre 2025*
 
