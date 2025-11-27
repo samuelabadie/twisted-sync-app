@@ -8,6 +8,12 @@ function getStripe() {
   })
 }
 
+// GET handler for webhook verification/health check
+export async function GET() {
+  console.log('Bookla webhook GET - health check')
+  return NextResponse.json({ status: 'ok', message: 'Bookla webhook is active' })
+}
+
 export async function POST(request: NextRequest) {
   const stripe = getStripe()
   try {
