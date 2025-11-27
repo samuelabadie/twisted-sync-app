@@ -122,18 +122,26 @@ export class BooklaClient {
 
   async confirmBooking(bookingId: string): Promise<void> {
     try {
-      await this.client.post(`/bookings/${bookingId}/confirm`);
-    } catch (error) {
-      console.error(`Error confirming Bookla booking ${bookingId}:`, error);
+      // According to Bookla API: PATCH /companies/{company_id}/bookings/{booking_id}
+      await this.client.patch(`/companies/${this.companyId}/bookings/${bookingId}`, {
+        status: 'confirmed'
+      });
+      console.log(`Booking ${bookingId} confirmed on Bookla`);
+    } catch (error: any) {
+      console.error(`Error confirming Bookla booking ${bookingId}:`, error.response?.data || error.message);
       throw error;
     }
   }
 
   async cancelBooking(bookingId: string): Promise<void> {
     try {
-      await this.client.post(`/bookings/${bookingId}/cancel`);
-    } catch (error) {
-      console.error(`Error canceling Bookla booking ${bookingId}:`, error);
+      // According to Bookla API: PATCH /companies/{company_id}/bookings/{booking_id}
+      await this.client.patch(`/companies/${this.companyId}/bookings/${bookingId}`, {
+        status: 'cancelled'
+      });
+      console.log(`Booking ${bookingId} cancelled on Bookla`);
+    } catch (error: any) {
+      console.error(`Error canceling Bookla booking ${bookingId}:`, error.response?.data || error.message);
       throw error;
     }
   }

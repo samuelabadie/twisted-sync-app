@@ -33,9 +33,14 @@ export async function POST(request: NextRequest) {
     // Calculate 30% deposit
     const depositAmount = totalAmount * 0.30
 
-    // Create Stripe Checkout Session
+    // Create Stripe Checkout Session with 15-minute expiration
     const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://twistedbraids.fr/succes-paiement'
     const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://twistedbraids.fr/echec-paiement'
+    
+    // Expire in 15 minutes (must be at least 30 minutes in the future for Stripe)
+    // Stripe requires expires_at to be between 30 minutes and 24 hours
+    // So we use 30 minutes as minimum, but our cleanup job will cancel after 15 min
+    const expiresAt = Math.floor(Date.now() / 1000) + (30 * 60) // 30 minutes from now
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -44,8 +49,8 @@ export async function POST(request: NextRequest) {
           price_data: {
             currency: 'eur',
             product_data: {
-              name: 'Acompte Réservation',
-              description: `Acompte de 30% pour votre réservation chez Twisted (${booking.service?.name || 'Service'})`,
+              name: 'Acompte Réservation Twisted',
+              description: `Acompte de 30% pour votre réservation (${booking.service?.name || booking.serviceName || 'Service'})`,
             },
             unit_amount: Math.round(depositAmount * 100), // Convert to cents
           },
@@ -53,17 +58,20 @@ export async function POST(request: NextRequest) {
         },
       ],
       mode: 'payment',
+      expires_at: expiresAt,
       metadata: {
         bookingId: booking.id,
-        clientEmail: booking.client?.email || '',
-        serviceId: booking.service?.id || '',
+        clientEmail: booking.client?.email || booking.clientEmail || '',
+        serviceId: booking.service?.id || booking.serviceID || '',
+        totalPrice: String(totalAmount),
+        depositAmount: String(depositAmount),
       },
       payment_intent_data: {
         metadata: {
           bookingId: booking.id,
         },
       },
-      customer_email: booking.client?.email,
+      customer_email: booking.client?.email || booking.clientEmail,
       success_url: successUrl,
       cancel_url: cancelUrl,
     })
