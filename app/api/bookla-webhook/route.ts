@@ -19,21 +19,65 @@ export async function POST(request: NextRequest) {
   try {
     const event = await request.json()
 
-    console.log('Received Bookla webhook', JSON.stringify(event, null, 2))
+    console.log('=== BOOKLA WEBHOOK RECEIVED ===')
+    console.log('Full payload:', JSON.stringify(event, null, 2))
 
-    // Bookla webhook payload structure - adjust based on actual payload
-    const booking = event.data || event
+    // Bookla webhook payload structure - try multiple locations
+    const booking = event.data || event.booking || event
     
     if (!booking || !booking.id) {
+      console.error('Invalid booking payload - no ID found')
       return NextResponse.json({ error: 'Invalid booking payload' }, { status: 400 })
     }
 
-    // Get price from booking - adjust field name based on actual Bookla payload
-    const totalAmount = booking.price || booking.totalPrice || booking.amount || 0
+    console.log('Booking ID:', booking.id)
+
+    // Try to find client email in various locations
+    const clientEmail = 
+      booking.client?.email || 
+      booking.clientEmail || 
+      booking.email ||
+      booking.guest?.email ||
+      booking.guestEmail ||
+      event.client?.email ||
+      event.email ||
+      null
+
+    console.log('Client email found:', clientEmail)
+
+    // Try to find client name
+    const clientName = 
+      booking.client?.firstName ||
+      booking.clientName ||
+      booking.guest?.firstName ||
+      booking.firstName ||
+      'Client'
+
+    console.log('Client name:', clientName)
+
+    // Get price from booking - try multiple field names
+    // Bookla prices are usually in cents
+    const priceInCents = 
+      booking.price || 
+      booking.totalPrice || 
+      booking.amount || 
+      booking.total ||
+      event.price ||
+      0
     
+    // Convert to euros (assuming price is in cents)
+    const totalAmount = priceInCents > 100 ? priceInCents / 100 : priceInCents
+    
+    console.log('Price (raw):', priceInCents, '-> Total amount (EUR):', totalAmount)
+
     if (totalAmount <= 0) {
       console.warn(`Booking ${booking.id} has no price, skipping payment link`)
       return NextResponse.json({ received: true, skipped: 'no_price' })
+    }
+
+    if (!clientEmail) {
+      console.warn(`No client email found for booking ${booking.id}`)
+      // Still create the Stripe session, but we won't be able to send an email
     }
 
     // Calculate 30% deposit
@@ -77,7 +121,7 @@ export async function POST(request: NextRequest) {
           bookingId: booking.id,
         },
       },
-      customer_email: booking.client?.email || booking.clientEmail,
+      customer_email: clientEmail || undefined,
       success_url: successUrl,
       cancel_url: cancelUrl,
     })
@@ -88,17 +132,28 @@ export async function POST(request: NextRequest) {
       throw new Error('Failed to generate checkout URL')
     }
 
-    console.log(`Generated payment link for booking ${booking.id}: ${checkoutUrl}`)
+    console.log(`✅ Generated payment link for booking ${booking.id}: ${checkoutUrl}`)
 
     // Send Email with checkoutUrl
-    if (booking.client?.email) {
-      await emailService.sendPaymentLink(booking.client.email, checkoutUrl, booking.id)
-      console.log(`Payment link email sent to ${booking.client.email}`)
+    if (clientEmail) {
+      try {
+        await emailService.sendPaymentLink(clientEmail, checkoutUrl, booking.id)
+        console.log(`📧 Payment link email sent to ${clientEmail}`)
+      } catch (emailError: any) {
+        console.error(`❌ Failed to send email to ${clientEmail}:`, emailError.message)
+        // Don't fail the webhook, just log the error
+      }
     } else {
-      console.warn(`No client email found for booking ${booking.id}`)
+      console.warn(`⚠️ No client email - cannot send payment link for booking ${booking.id}`)
+      console.warn(`💡 Checkout URL (manual): ${checkoutUrl}`)
     }
 
-    return NextResponse.json({ received: true, checkoutUrl })
+    return NextResponse.json({ 
+      received: true, 
+      checkoutUrl,
+      emailSent: !!clientEmail,
+      bookingId: booking.id
+    })
 
   } catch (error: any) {
     console.error('Bookla webhook failed:', error.message)
