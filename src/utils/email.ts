@@ -1,24 +1,16 @@
 import { logger } from './logger';
 
-// Use require for sib-api-v3-sdk as it doesn't have proper TS types
-const SibApiV3Sdk = require('sib-api-v3-sdk');
-
 export class EmailService {
-  private apiInstance: any = null;
+  private apiKey: string | undefined;
   private senderEmail: string;
   private senderName: string;
 
   constructor() {
-    const apiKey = process.env.BREVO_API_KEY;
+    this.apiKey = process.env.BREVO_API_KEY;
     this.senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@twisted.com';
     this.senderName = process.env.BREVO_SENDER_NAME || 'Twisted Coiffure';
 
-    if (apiKey) {
-      const defaultClient = SibApiV3Sdk.ApiClient.instance;
-      const apiKeyAuth = defaultClient.authentications['api-key'];
-      apiKeyAuth.apiKey = apiKey;
-      this.apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
-    } else {
+    if (!this.apiKey) {
       logger.warn('Email service not configured (missing BREVO_API_KEY). Emails will be logged only.');
     }
   }
@@ -35,16 +27,29 @@ export class EmailService {
       <p>Cordialement,<br>L'équipe Twisted</p>
     `;
 
-    if (this.apiInstance) {
+    if (this.apiKey) {
       try {
-        const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-        sendSmtpEmail.subject = subject;
-        sendSmtpEmail.htmlContent = htmlContent;
-        sendSmtpEmail.textContent = textContent;
-        sendSmtpEmail.sender = { name: this.senderName, email: this.senderEmail };
-        sendSmtpEmail.to = [{ email: to }];
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'api-key': this.apiKey,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            sender: { name: this.senderName, email: this.senderEmail },
+            to: [{ email: to }],
+            subject,
+            htmlContent,
+            textContent,
+          }),
+        });
 
-        await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+        if (!response.ok) {
+          const errorData = await response.text();
+          throw new Error(`Brevo API error: ${response.status} - ${errorData}`);
+        }
+
         logger.info(`Email sent to ${to}`);
       } catch (error: any) {
         logger.error('Failed to send email via Brevo API', { error: error.message });
