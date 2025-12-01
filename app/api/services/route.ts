@@ -252,6 +252,7 @@ export async function DELETE(request: NextRequest) {
     const creds = JSON.parse(process.env.GOOGLE_CREDS!)
     const collectionId = process.env.WEBFLOW_COLLECTION_ID!
     const token = process.env.WEBFLOW_API_TOKEN!
+    const typeCollectionId = process.env.WEBFLOW_SERVICE_TYPE_COLLECTION_ID!
     
     const auth = new google.auth.GoogleAuth({
       credentials: creds,
@@ -259,6 +260,7 @@ export async function DELETE(request: NextRequest) {
     })
     const sheetsApi = google.sheets({ version: 'v4', auth })
     const bookla = new BooklaClient(process.env.BOOKLA_API_KEY!, process.env.BOOKLA_COMPANY_ID!)
+    const webflow = new WebflowClient(token, process.env.WEBFLOW_SITE_ID!)
     
     const webflowApi = axios.create({
       baseURL: 'https://api.webflow.com/v2',
@@ -267,14 +269,17 @@ export async function DELETE(request: NextRequest) {
     
     const baseSlug = toSlug(serviceName)
     
-    // Find matching rows
+    // Find matching rows (now reading up to column S for service_type_id)
     const sheetData = await sheetsApi.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'A2:Q',
+      range: 'A2:S',
     })
     const rows = sheetData.data.values || []
     
     const matchingRows: { rowIndex: number; data: any[] }[] = []
+    let parentWebflowId: string | null = null
+    let parentTypeId: string | null = null
+    
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
       const rowName = row[2]?.toLowerCase() || ''
@@ -286,6 +291,12 @@ export async function DELETE(request: NextRequest) {
       
       if (isParent || isOption) {
         matchingRows.push({ rowIndex: i + 2, data: row })
+        
+        // Get parent's webflow_id and service_type_id
+        if (isParent) {
+          parentWebflowId = row[0] || null  // Column A = Webflow_ID
+          parentTypeId = row[18] || null    // Column S = Service_Type_ID
+        }
       }
     }
     
@@ -294,6 +305,17 @@ export async function DELETE(request: NextRequest) {
     }
     
     const booklaIdsToDelete = new Set(matchingRows.map(r => r.data[3]).filter(Boolean))
+    
+    // FIRST: Remove service from its type in Webflow
+    if (parentWebflowId && parentTypeId) {
+      try {
+        await webflow.removeServiceFromType(typeCollectionId, parentTypeId, parentWebflowId)
+        console.log(`Removed service ${parentWebflowId} from type ${parentTypeId}`)
+      } catch (e: any) {
+        console.error('Error removing service from type:', e.message)
+        // Continue with deletion even if this fails
+      }
+    }
     
     // Delete from Webflow (options first)
     const sortedForWebflow = [...matchingRows].sort((a, b) => {
