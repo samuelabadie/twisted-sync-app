@@ -18,7 +18,7 @@ export class GoogleSheetsService {
     try {
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.sheetId,
-        range: 'A2:Q', // A to Q based on new CSV
+        range: 'A2:S', // A to S (added Service_Type and Service_Type_ID)
       });
 
       const rows = response.data.values;
@@ -45,6 +45,8 @@ export class GoogleSheetsService {
           option_extra_duration: parseInt(row[14] || '0'),
           bookla_updated_at: row[15],
           notes_internal: row[16],
+          service_type: row[17],          // Col R - Nom du type
+          service_type_id: row[18],       // Col S - ID Webflow du type
           rowIndex: index + 2,
         };
       });
@@ -58,10 +60,12 @@ export class GoogleSheetsService {
     try {
       const updates: { range: string; values: any[][] }[] = [];
 
-      // Mapping based on new CSV structure:
+      // Mapping based on CSV structure:
       // Webflow_ID = Col A (0)
       // Bookla_ServiceID = Col D (3)
       // Bookla_UpdatedAt = Col P (15)
+      // Service_Type = Col R (17)
+      // Service_Type_ID = Col S (18)
 
       if (data.webflow_id !== undefined) {
         updates.push({ range: `A${rowIndex}`, values: [[data.webflow_id]] });
@@ -71,6 +75,12 @@ export class GoogleSheetsService {
       }
       if (data.bookla_updated_at !== undefined) {
         updates.push({ range: `P${rowIndex}`, values: [[data.bookla_updated_at]] });
+      }
+      if (data.service_type !== undefined) {
+        updates.push({ range: `R${rowIndex}`, values: [[data.service_type]] });
+      }
+      if (data.service_type_id !== undefined) {
+        updates.push({ range: `S${rowIndex}`, values: [[data.service_type_id]] });
       }
 
       if (updates.length > 0) {

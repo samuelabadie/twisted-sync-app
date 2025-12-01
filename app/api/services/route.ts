@@ -54,7 +54,11 @@ export async function GET() {
         price: parent.price_eur,
         duration: parent.duration_minutes,
         visible: parent.visible,
-        parent,
+        parent: {
+          ...parent,
+          service_type: parent.service_type,
+          service_type_id: parent.service_type_id,
+        },
         options,
         isFullySynced,
       })
@@ -73,7 +77,7 @@ export async function GET() {
 // POST - Create a new service with options
 export async function POST(request: NextRequest) {
   try {
-    const { name, price, duration, bufferBefore = 15, bufferAfter = 15 } = await request.json()
+    const { name, price, duration, bufferBefore = 15, bufferAfter = 15, serviceType, serviceTypeId } = await request.json()
     
     if (!name || price === undefined || duration === undefined) {
       return NextResponse.json({ error: 'name, price, and duration are required' }, { status: 400 })
@@ -183,8 +187,20 @@ export async function POST(request: NextRequest) {
       await new Promise(r => setTimeout(r, 300))
     }
     
-    // Add to Sheet
-    const newRows = results.map(r => [
+    // Add parent service to service type if specified
+    if (serviceTypeId && parentWebflowId) {
+      try {
+        const typeCollectionId = process.env.WEBFLOW_SERVICE_TYPE_COLLECTION_ID!
+        await webflow.addServiceToType(typeCollectionId, serviceTypeId, parentWebflowId)
+        console.log(`Added service to type ${serviceType}`)
+      } catch (e: any) {
+        console.error('Error adding service to type:', e.message)
+        // Don't fail the whole request, just log the error
+      }
+    }
+    
+    // Add to Sheet (now with Service_Type columns R and S)
+    const newRows = results.map((r, idx) => [
       r.webflowId,
       r.slug,
       r.name,
@@ -199,18 +215,20 @@ export async function POST(request: NextRequest) {
       r.optionDuration || '',
       new Date().toISOString(),
       '',
+      idx === 0 ? (serviceType || '') : '',      // Service_Type (only for parent)
+      idx === 0 ? (serviceTypeId || '') : '',    // Service_Type_ID (only for parent)
     ])
     
     await sheetsApi.spreadsheets.values.append({
       spreadsheetId: sheetId,
-      range: 'A:Q',
+      range: 'A:S',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: newRows },
     })
     
     return NextResponse.json({ 
       success: true, 
-      message: `Service "${name}" créé avec ${DEFAULT_OPTIONS.length} options`,
+      message: `Service "${name}" créé avec ${DEFAULT_OPTIONS.length} options${serviceType ? ` (Type: ${serviceType})` : ''}`,
       created: results.length 
     })
     
