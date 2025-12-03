@@ -110,6 +110,17 @@ export class WebflowClient {
     }
   }
 
+  async deleteItem(collectionId: string, itemId: string): Promise<void> {
+    try {
+      await this.client.delete(`/collections/${collectionId}/items/${itemId}`);
+      // Invalidate cache
+      this.itemsCache = null;
+    } catch (error) {
+      console.error(`Error deleting Webflow item ${itemId}:`, error);
+      throw error;
+    }
+  }
+
   // ========== SERVICE TYPES ==========
 
   /**

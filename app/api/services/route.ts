@@ -306,18 +306,19 @@ export async function DELETE(request: NextRequest) {
     
     const booklaIdsToDelete = new Set(matchingRows.map(r => r.data[3]).filter(Boolean))
     
-    // FIRST: Remove service from its type in Webflow
+    // FIRST: Remove service from its type in Webflow (before deleting)
     if (parentWebflowId && parentTypeId) {
       try {
         await webflow.removeServiceFromType(typeCollectionId, parentTypeId, parentWebflowId)
-        console.log(`Removed service ${parentWebflowId} from type ${parentTypeId}`)
+        // Wait for Webflow to process the reference removal
+        await new Promise(r => setTimeout(r, 1000))
       } catch (e: any) {
         console.error('Error removing service from type:', e.message)
         // Continue with deletion even if this fails
       }
     }
     
-    // Delete from Webflow (options first)
+    // Delete from Webflow (options first, parent last)
     const sortedForWebflow = [...matchingRows].sort((a, b) => {
       const aIsParent = a.data[2]?.toLowerCase() === serviceName.toLowerCase()
       const bIsParent = b.data[2]?.toLowerCase() === serviceName.toLowerCase()
