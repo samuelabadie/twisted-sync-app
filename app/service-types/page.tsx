@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 interface ServiceType {
   id: string
@@ -17,6 +18,7 @@ interface Category {
 }
 
 export default function ServiceTypesPage() {
+  const router = useRouter()
   const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,6 +27,12 @@ export default function ServiceTypesPage() {
   const [newType, setNewType] = useState({ name: '', categoryIds: [] as string[] })
   const [adding, setAdding] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+    router.refresh()
+  }
 
   useEffect(() => {
     loadData()
@@ -118,13 +126,22 @@ export default function ServiceTypesPage() {
                 <p className="text-sm text-stone-400">Gérer les catégories de coiffures</p>
               </div>
             </div>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-amber-500/25 hover:-translate-y-0.5 flex items-center gap-2"
-            >
-              <span>➕</span>
-              Nouveau type
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-amber-500/25 hover:-translate-y-0.5 flex items-center gap-2"
+              >
+                <span>➕</span>
+                Nouveau type
+              </button>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-3 bg-stone-800 hover:bg-red-900/50 text-stone-400 hover:text-red-400 font-medium rounded-xl transition-all duration-300 border border-stone-700 hover:border-red-800"
+                title="Déconnexion"
+              >
+                🚪
+              </button>
+            </div>
           </div>
         </div>
       </header>

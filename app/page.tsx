@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 interface Service {
   rowIndex: number
@@ -40,6 +41,7 @@ interface ServiceType {
 }
 
 export default function Dashboard() {
+  const router = useRouter()
   const [services, setServices] = useState<GroupedService[]>([])
   const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([])
   const [loading, setLoading] = useState(true)
@@ -53,6 +55,12 @@ export default function Dashboard() {
   const [syncResult, setSyncResult] = useState<any>(null)
   const [editingType, setEditingType] = useState<{ serviceName: string; webflowId: string; currentTypeId: string } | null>(null)
   const [updatingType, setUpdatingType] = useState(false)
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+    router.refresh()
+  }
 
   useEffect(() => {
     loadServices()
@@ -229,6 +237,13 @@ export default function Dashboard() {
               >
                 <span>➕</span>
                 Nouveau service
+              </button>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-3 bg-stone-800 hover:bg-red-900/50 text-stone-400 hover:text-red-400 font-medium rounded-xl transition-all duration-300 border border-stone-700 hover:border-red-800"
+                title="Déconnexion"
+              >
+                🚪
               </button>
             </div>
           </div>
