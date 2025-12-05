@@ -281,16 +281,32 @@ export class BooklaClient {
    */
   async getClient(clientId: string): Promise<any> {
     try {
+      console.log(`🔍 Calling Bookla API: /clients/search?clientID=${clientId}`)
       const response = await this.client.get(`/companies/${this.companyId}/clients/search`, {
         params: { clientID: clientId }
       })
+      console.log(`📦 Bookla client response:`, JSON.stringify(response.data, null, 2))
+      
       const clients = response.data
       if (Array.isArray(clients) && clients.length > 0) {
+        console.log(`✅ Found client: ${clients[0].email || 'NO EMAIL'} (${clients[0].firstName || 'NO NAME'})`)
         return clients[0]
       }
+      
+      // Maybe the response is wrapped in { clients: [...] } or { data: [...] }
+      if (clients?.clients && Array.isArray(clients.clients) && clients.clients.length > 0) {
+        console.log(`✅ Found client (wrapped): ${clients.clients[0].email}`)
+        return clients.clients[0]
+      }
+      if (clients?.data && Array.isArray(clients.data) && clients.data.length > 0) {
+        console.log(`✅ Found client (data wrapped): ${clients.data[0].email}`)
+        return clients.data[0]
+      }
+      
+      console.warn(`⚠️ No client found for clientID: ${clientId}`)
       return null
     } catch (error: any) {
-      console.error(`Error fetching client ${clientId}:`, error.response?.data || error.message)
+      console.error(`❌ Error fetching client ${clientId}:`, error.response?.status, error.response?.data || error.message)
       return null
     }
   }
