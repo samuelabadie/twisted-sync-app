@@ -61,7 +61,23 @@ export async function POST(request: NextRequest) {
       booking.firstName ||
       'Client'
 
-    // If no email in webhook, try to fetch from Bookla API
+    // Check metaData for email (from custom form field)
+    // Bookla stores custom fields as "fieldname_0", "fieldname_1", etc.
+    if (!clientEmail && booking.metaData) {
+      const metaData = booking.metaData
+      // Look for email in metaData (various possible field names)
+      const emailKey = Object.keys(metaData).find(key => 
+        key.toLowerCase().includes('email') || 
+        key.toLowerCase().includes('mail') ||
+        key.toLowerCase().includes('e-mail')
+      )
+      if (emailKey && metaData[emailKey]) {
+        clientEmail = metaData[emailKey]
+        console.log(`📧 Found email in metaData[${emailKey}]: ${clientEmail}`)
+      }
+    }
+
+    // If still no email, try to fetch from Bookla API
     if (!clientEmail && booking.clientID) {
       console.log(`📡 Fetching client details from Bookla for clientID: ${booking.clientID}`)
       try {
