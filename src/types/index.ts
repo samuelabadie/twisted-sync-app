@@ -17,11 +17,21 @@ export interface Service {
   option_extra_duration?: number;
   bookla_updated_at?: string;
   notes_internal?: string;
+  service_type?: string;        // Nom du type de service (ex: "Cornrows", "Fulani")
+  service_type_id?: string;     // ID Webflow du type de service
 
   // Calculated / Internal
   final_price?: number;
   final_duration_min?: number;
   rowIndex: number;
+}
+
+export interface ServiceType {
+  id: string;                   // Webflow ID
+  name: string;                 // Nom du type
+  slug: string;                 // Slug
+  serviceIds: string[];         // IDs des services liés (multi-reference)
+  categoryIds: string[];        // IDs des catégories (homme/femme)
 }
 
 export interface SyncReport {

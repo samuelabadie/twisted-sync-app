@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 interface Service {
   rowIndex: number
@@ -16,6 +18,8 @@ interface Service {
   option_extra_duration?: number
   final_price?: number
   final_duration_min?: number
+  service_type?: string
+  service_type_id?: string
 }
 
 interface GroupedService {
@@ -29,21 +33,50 @@ interface GroupedService {
   isFullySynced: boolean
 }
 
+interface ServiceType {
+  id: string
+  name: string
+  slug: string
+  serviceIds: string[]
+}
+
 export default function Dashboard() {
+  const router = useRouter()
   const [services, setServices] = useState<GroupedService[]>([])
+  const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
-  const [newService, setNewService] = useState({ name: '', price: 100, duration: 120, bufferBefore: 15, bufferAfter: 15 })
+  const [newService, setNewService] = useState({ name: '', price: 100, duration: 120, bufferBefore: 15, bufferAfter: 15, serviceType: '', serviceTypeId: '' })
   const [addingService, setAddingService] = useState(false)
   const [deletingService, setDeletingService] = useState<string | null>(null)
   const [togglingVisibility, setTogglingVisibility] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<any>(null)
+  const [editingType, setEditingType] = useState<{ serviceName: string; webflowId: string; currentTypeId: string } | null>(null)
+  const [updatingType, setUpdatingType] = useState(false)
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+    router.refresh()
+  }
 
   useEffect(() => {
     loadServices()
+    loadServiceTypes()
   }, [])
+
+  async function loadServiceTypes() {
+    try {
+      const res = await fetch('/api/service-types')
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setServiceTypes(data.serviceTypes || [])
+    } catch (err: any) {
+      console.error('Error loading service types:', err.message)
+    }
+  }
 
   async function loadServices() {
     try {
@@ -86,7 +119,7 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setShowAddForm(false)
-      setNewService({ name: '', price: 100, duration: 120, bufferBefore: 15, bufferAfter: 15 })
+      setNewService({ name: '', price: 100, duration: 120, bufferBefore: 15, bufferAfter: 15, serviceType: '', serviceTypeId: '' })
       await loadServices()
     } catch (err: any) {
       setError(err.message)
@@ -133,6 +166,36 @@ export default function Dashboard() {
     }
   }
 
+  async function handleUpdateServiceType(newTypeId: string) {
+    if (!editingType) return
+    
+    setUpdatingType(true)
+    try {
+      const selectedType = serviceTypes.find(t => t.id === newTypeId)
+      
+      const res = await fetch('/api/services/type', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serviceName: editingType.serviceName,
+          webflowId: editingType.webflowId,
+          oldTypeId: editingType.currentTypeId,
+          newTypeId: newTypeId,
+          newTypeName: selectedType?.name || '',
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      
+      setEditingType(null)
+      await loadServices()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setUpdatingType(false)
+    }
+  }
+
   const totalServices = services.length
   const totalWithOptions = services.reduce((acc, s) => acc + 1 + s.options.length, 0)
   const syncedCount = services.filter(s => s.isFullySynced).length
@@ -153,13 +216,20 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              <Link
+                href="/service-types"
+                className="px-4 py-3 bg-stone-800 hover:bg-stone-700 text-stone-100 font-medium rounded-xl transition-all duration-300 border border-stone-700 hover:border-stone-600 flex items-center gap-2"
+              >
+                <span>📂</span>
+                Types
+              </Link>
               <button
                 onClick={handleSync}
                 disabled={syncing}
-                className="px-6 py-3 bg-stone-800 hover:bg-stone-700 text-stone-100 font-medium rounded-xl transition-all duration-300 border border-stone-700 hover:border-stone-600 flex items-center gap-2"
+                className="px-4 py-3 bg-stone-800 hover:bg-stone-700 text-stone-100 font-medium rounded-xl transition-all duration-300 border border-stone-700 hover:border-stone-600 flex items-center gap-2"
               >
                 <span className={syncing ? 'animate-spin' : ''}>🔄</span>
-                {syncing ? 'Synchronisation...' : 'Sync Now'}
+                {syncing ? 'Sync...' : 'Sync'}
               </button>
               <button
                 onClick={() => setShowAddForm(true)}
@@ -167,6 +237,13 @@ export default function Dashboard() {
               >
                 <span>➕</span>
                 Nouveau service
+              </button>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-3 bg-stone-800 hover:bg-red-900/50 text-stone-400 hover:text-red-400 font-medium rounded-xl transition-all duration-300 border border-stone-700 hover:border-red-800"
+                title="Déconnexion"
+              >
+                🚪
               </button>
             </div>
           </div>
@@ -290,6 +367,19 @@ export default function Dashboard() {
                       <span className="flex items-center gap-1.5">
                         <span>🔗</span> {service.slug}
                       </span>
+                      <button
+                        onClick={() => setEditingType({
+                          serviceName: service.name,
+                          webflowId: service.parent.webflow_id,
+                          currentTypeId: service.parent.service_type_id || ''
+                        })}
+                        className="flex items-center gap-1.5 px-2 py-1 bg-stone-800 hover:bg-stone-700 rounded-lg transition-colors"
+                      >
+                        <span>📂</span> 
+                        <span className={service.parent.service_type ? 'text-purple-400' : 'text-stone-500'}>
+                          {service.parent.service_type || 'Aucun type'}
+                        </span>
+                      </button>
                     </div>
                     
                     {/* Options */}
@@ -416,6 +506,27 @@ export default function Dashboard() {
                   />
                 </div>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-stone-300 mb-2">Type de service</label>
+                <select
+                  value={newService.serviceTypeId}
+                  onChange={e => {
+                    const selectedType = serviceTypes.find(t => t.id === e.target.value)
+                    setNewService({ 
+                      ...newService, 
+                      serviceTypeId: e.target.value,
+                      serviceType: selectedType?.name || ''
+                    })
+                  }}
+                  className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                >
+                  <option value="">-- Sélectionner un type --</option>
+                  {serviceTypes.map(type => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-stone-500 mt-1">Le service sera ajouté à ce type sur Webflow</p>
+              </div>
               <p className="text-sm text-stone-500">
                 Les 3 options (Coupe des pointes, Shampoing démêlant, Shampoing et soin) seront ajoutées automatiquement.
               </p>
@@ -436,6 +547,60 @@ export default function Dashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Service Type Modal */}
+      {editingType && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-stone-900/95 backdrop-blur-sm border border-stone-800 rounded-2xl shadow-xl p-8 w-full max-w-md mx-4">
+            <h2 className="text-2xl font-bold text-amber-100 mb-2">Modifier le type</h2>
+            <p className="text-stone-400 mb-6">Service : {editingType.serviceName}</p>
+            
+            <div className="space-y-3">
+              {/* Option to remove type */}
+              <button
+                onClick={() => handleUpdateServiceType('')}
+                disabled={updatingType}
+                className={`w-full p-4 rounded-xl border transition-all duration-200 text-left ${
+                  !editingType.currentTypeId
+                    ? 'bg-amber-600/20 border-amber-500 text-amber-100'
+                    : 'bg-stone-800 border-stone-700 text-stone-300 hover:border-stone-600'
+                }`}
+              >
+                <span className="text-stone-500">Aucun type</span>
+              </button>
+              
+              {/* Service types */}
+              {serviceTypes.map(type => (
+                <button
+                  key={type.id}
+                  onClick={() => handleUpdateServiceType(type.id)}
+                  disabled={updatingType}
+                  className={`w-full p-4 rounded-xl border transition-all duration-200 text-left flex items-center justify-between ${
+                    editingType.currentTypeId === type.id
+                      ? 'bg-purple-600/20 border-purple-500 text-purple-100'
+                      : 'bg-stone-800 border-stone-700 text-stone-300 hover:border-stone-600'
+                  }`}
+                >
+                  <span>{type.name}</span>
+                  {editingType.currentTypeId === type.id && (
+                    <span className="text-purple-400">✓ Actuel</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-3 pt-6">
+              <button
+                onClick={() => setEditingType(null)}
+                disabled={updatingType}
+                className="px-6 py-3 bg-stone-800 hover:bg-stone-700 text-stone-100 font-medium rounded-xl transition-all duration-300 border border-stone-700 hover:border-stone-600 flex-1"
+              >
+                {updatingType ? 'Mise à jour...' : 'Fermer'}
+              </button>
+            </div>
           </div>
         </div>
       )}

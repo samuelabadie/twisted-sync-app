@@ -54,7 +54,11 @@ export async function GET() {
         price: parent.price_eur,
         duration: parent.duration_minutes,
         visible: parent.visible,
-        parent,
+        parent: {
+          ...parent,
+          service_type: parent.service_type,
+          service_type_id: parent.service_type_id,
+        },
         options,
         isFullySynced,
       })
@@ -73,7 +77,7 @@ export async function GET() {
 // POST - Create a new service with options
 export async function POST(request: NextRequest) {
   try {
-    const { name, price, duration, bufferBefore = 15, bufferAfter = 15 } = await request.json()
+    const { name, price, duration, bufferBefore = 15, bufferAfter = 15, serviceType, serviceTypeId } = await request.json()
     
     if (!name || price === undefined || duration === undefined) {
       return NextResponse.json({ error: 'name, price, and duration are required' }, { status: 400 })
@@ -183,8 +187,20 @@ export async function POST(request: NextRequest) {
       await new Promise(r => setTimeout(r, 300))
     }
     
-    // Add to Sheet
-    const newRows = results.map(r => [
+    // Add parent service to service type if specified
+    if (serviceTypeId && parentWebflowId) {
+      try {
+        const typeCollectionId = process.env.WEBFLOW_SERVICE_TYPE_COLLECTION_ID!
+        await webflow.addServiceToType(typeCollectionId, serviceTypeId, parentWebflowId)
+        console.log(`Added service to type ${serviceType}`)
+      } catch (e: any) {
+        console.error('Error adding service to type:', e.message)
+        // Don't fail the whole request, just log the error
+      }
+    }
+    
+    // Add to Sheet (now with Service_Type columns R and S)
+    const newRows = results.map((r, idx) => [
       r.webflowId,
       r.slug,
       r.name,
@@ -199,18 +215,20 @@ export async function POST(request: NextRequest) {
       r.optionDuration || '',
       new Date().toISOString(),
       '',
+      idx === 0 ? (serviceType || '') : '',      // Service_Type (only for parent)
+      idx === 0 ? (serviceTypeId || '') : '',    // Service_Type_ID (only for parent)
     ])
     
     await sheetsApi.spreadsheets.values.append({
       spreadsheetId: sheetId,
-      range: 'A:Q',
+      range: 'A:S',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: newRows },
     })
     
     return NextResponse.json({ 
       success: true, 
-      message: `Service "${name}" créé avec ${DEFAULT_OPTIONS.length} options`,
+      message: `Service "${name}" créé avec ${DEFAULT_OPTIONS.length} options${serviceType ? ` (Type: ${serviceType})` : ''}`,
       created: results.length 
     })
     
@@ -234,6 +252,7 @@ export async function DELETE(request: NextRequest) {
     const creds = JSON.parse(process.env.GOOGLE_CREDS!)
     const collectionId = process.env.WEBFLOW_COLLECTION_ID!
     const token = process.env.WEBFLOW_API_TOKEN!
+    const typeCollectionId = process.env.WEBFLOW_SERVICE_TYPE_COLLECTION_ID!
     
     const auth = new google.auth.GoogleAuth({
       credentials: creds,
@@ -241,6 +260,7 @@ export async function DELETE(request: NextRequest) {
     })
     const sheetsApi = google.sheets({ version: 'v4', auth })
     const bookla = new BooklaClient(process.env.BOOKLA_API_KEY!, process.env.BOOKLA_COMPANY_ID!)
+    const webflow = new WebflowClient(token, process.env.WEBFLOW_SITE_ID!)
     
     const webflowApi = axios.create({
       baseURL: 'https://api.webflow.com/v2',
@@ -249,14 +269,17 @@ export async function DELETE(request: NextRequest) {
     
     const baseSlug = toSlug(serviceName)
     
-    // Find matching rows
+    // Find matching rows (now reading up to column S for service_type_id)
     const sheetData = await sheetsApi.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'A2:Q',
+      range: 'A2:S',
     })
     const rows = sheetData.data.values || []
     
     const matchingRows: { rowIndex: number; data: any[] }[] = []
+    let parentWebflowId: string | null = null
+    let parentTypeId: string | null = null
+    
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
       const rowName = row[2]?.toLowerCase() || ''
@@ -268,6 +291,12 @@ export async function DELETE(request: NextRequest) {
       
       if (isParent || isOption) {
         matchingRows.push({ rowIndex: i + 2, data: row })
+        
+        // Get parent's webflow_id and service_type_id
+        if (isParent) {
+          parentWebflowId = row[0] || null  // Column A = Webflow_ID
+          parentTypeId = row[18] || null    // Column S = Service_Type_ID
+        }
       }
     }
     
@@ -277,7 +306,19 @@ export async function DELETE(request: NextRequest) {
     
     const booklaIdsToDelete = new Set(matchingRows.map(r => r.data[3]).filter(Boolean))
     
-    // Delete from Webflow (options first)
+    // FIRST: Remove service from its type in Webflow (before deleting)
+    if (parentWebflowId && parentTypeId) {
+      try {
+        await webflow.removeServiceFromType(typeCollectionId, parentTypeId, parentWebflowId)
+        // Wait for Webflow to process the reference removal
+        await new Promise(r => setTimeout(r, 1000))
+      } catch (e: any) {
+        console.error('Error removing service from type:', e.message)
+        // Continue with deletion even if this fails
+      }
+    }
+    
+    // Delete from Webflow (options first, parent last)
     const sortedForWebflow = [...matchingRows].sort((a, b) => {
       const aIsParent = a.data[2]?.toLowerCase() === serviceName.toLowerCase()
       const bIsParent = b.data[2]?.toLowerCase() === serviceName.toLowerCase()
