@@ -9,13 +9,13 @@ function getStripe() {
   })
 }
 
-// Fetch client details from Bookla API
-async function getClientFromBookla(clientId: string): Promise<{ email: string; firstName: string } | null> {
+// Fetch booking details from Bookla API to get client info
+async function getBookingDetailsFromBookla(bookingId: string): Promise<{ email: string; firstName: string } | null> {
   try {
+    // First, try to get the booking with client details
     const response = await axios.get(
-      `https://eu.bookla.com/api/v1/companies/${process.env.BOOKLA_COMPANY_ID}/clients/search`,
+      `https://eu.bookla.com/api/v1/companies/${process.env.BOOKLA_COMPANY_ID}/bookings/${bookingId}`,
       {
-        params: { clientID: clientId },
         headers: {
           'x-api-key': process.env.BOOKLA_API_KEY!,
           'Content-Type': 'application/json',
@@ -23,18 +23,46 @@ async function getClientFromBookla(clientId: string): Promise<{ email: string; f
       }
     )
     
-    // Response is an array of clients
-    const clients = response.data
-    if (Array.isArray(clients) && clients.length > 0) {
-      const client = clients[0]
+    const booking = response.data
+    console.log('📦 Booking details from Bookla:', JSON.stringify(booking, null, 2))
+    
+    // Check if client info is included
+    if (booking.client?.email) {
       return {
-        email: client.email || null,
-        firstName: client.firstName || 'Client',
+        email: booking.client.email,
+        firstName: booking.client.firstName || 'Client',
       }
     }
+    
+    // If we have a clientID, try to fetch client separately
+    if (booking.clientID) {
+      try {
+        const clientResponse = await axios.get(
+          `https://eu.bookla.com/api/v1/companies/${process.env.BOOKLA_COMPANY_ID}/clients/search`,
+          {
+            params: { clientID: booking.clientID },
+            headers: {
+              'x-api-key': process.env.BOOKLA_API_KEY!,
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+        
+        const clients = clientResponse.data
+        if (Array.isArray(clients) && clients.length > 0) {
+          return {
+            email: clients[0].email || null,
+            firstName: clients[0].firstName || 'Client',
+          }
+        }
+      } catch (clientError: any) {
+        console.log('Could not fetch client directly:', clientError.message)
+      }
+    }
+    
     return null
   } catch (error: any) {
-    console.error('Error fetching client from Bookla:', error.message)
+    console.error('Error fetching booking from Bookla:', error.message)
     return null
   }
 }
@@ -81,13 +109,13 @@ export async function POST(request: NextRequest) {
       booking.firstName ||
       'Client'
 
-    // If no email found but we have a clientID, fetch from Bookla API
-    if (!clientEmail && booking.clientID) {
-      console.log(`📡 Fetching client details from Bookla for clientID: ${booking.clientID}`)
-      const clientDetails = await getClientFromBookla(booking.clientID)
-      if (clientDetails) {
-        clientEmail = clientDetails.email
-        clientName = clientDetails.firstName || clientName
+    // If no email found, fetch booking details from Bookla API
+    if (!clientEmail && booking.id) {
+      console.log(`📡 Fetching booking details from Bookla for bookingId: ${booking.id}`)
+      const bookingDetails = await getBookingDetailsFromBookla(booking.id)
+      if (bookingDetails?.email) {
+        clientEmail = bookingDetails.email
+        clientName = bookingDetails.firstName || clientName
         console.log(`✅ Got client from Bookla: ${clientEmail} (${clientName})`)
       }
     }
