@@ -1,11 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import axios from 'axios'
 import { emailService } from '../../../src/utils/email'
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
     apiVersion: '2025-11-17.clover',
   })
+}
+
+// Fetch client details from Bookla API
+async function getClientFromBookla(clientId: string): Promise<{ email: string; firstName: string } | null> {
+  try {
+    const response = await axios.get(
+      `https://eu.bookla.com/api/v1/companies/${process.env.BOOKLA_COMPANY_ID}/clients/search`,
+      {
+        params: { clientID: clientId },
+        headers: {
+          'x-api-key': process.env.BOOKLA_API_KEY!,
+          'Content-Type': 'application/json',
+        },
+      }
+    )
+    
+    // Response is an array of clients
+    const clients = response.data
+    if (Array.isArray(clients) && clients.length > 0) {
+      const client = clients[0]
+      return {
+        email: client.email || null,
+        firstName: client.firstName || 'Client',
+      }
+    }
+    return null
+  } catch (error: any) {
+    console.error('Error fetching client from Bookla:', error.message)
+    return null
+  }
 }
 
 // GET handler for webhook verification/health check
@@ -33,7 +64,7 @@ export async function POST(request: NextRequest) {
     console.log('Booking ID:', booking.id)
 
     // Try to find client email in various locations
-    const clientEmail = 
+    let clientEmail = 
       booking.client?.email || 
       booking.clientEmail || 
       booking.email ||
@@ -43,16 +74,25 @@ export async function POST(request: NextRequest) {
       event.email ||
       null
 
-    console.log('Client email found:', clientEmail)
-
-    // Try to find client name
-    const clientName = 
+    let clientName = 
       booking.client?.firstName ||
       booking.clientName ||
       booking.guest?.firstName ||
       booking.firstName ||
       'Client'
 
+    // If no email found but we have a clientID, fetch from Bookla API
+    if (!clientEmail && booking.clientID) {
+      console.log(`📡 Fetching client details from Bookla for clientID: ${booking.clientID}`)
+      const clientDetails = await getClientFromBookla(booking.clientID)
+      if (clientDetails) {
+        clientEmail = clientDetails.email
+        clientName = clientDetails.firstName || clientName
+        console.log(`✅ Got client from Bookla: ${clientEmail} (${clientName})`)
+      }
+    }
+
+    console.log('Client email found:', clientEmail)
     console.log('Client name:', clientName)
 
     // Get price from booking - try multiple field names
