@@ -241,18 +241,57 @@ export class BooklaClient {
 
   async getPendingBookings(): Promise<any[]> {
     try {
-      // Assumption: Bookla API supports filtering by status
-      // If not, we'd have to fetch all and filter, which is inefficient
+      // Bookla API doesn't support status filter, so we fetch recent bookings and filter
+      const now = new Date()
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
+      
       const response = await this.client.get(`/companies/${this.companyId}/bookings`, {
         params: {
-          status: 'pending', // or whatever the status is for unpaid
-          // created_before: ... // if supported
+          from: oneHourAgo.toISOString(),
+          to: now.toISOString(),
+          limit: 100
         }
       });
-      return response.data.data || [];
+      
+      const bookings = response.data.bookings || response.data.data || response.data || []
+      
+      // Filter only pending bookings
+      return bookings.filter((b: any) => b.status === 'pending')
     } catch (error) {
       console.error('Error fetching pending bookings:', error);
       return [];
+    }
+  }
+
+  /**
+   * Get booking details by ID
+   */
+  async getBooking(bookingId: string): Promise<any> {
+    try {
+      const response = await this.client.get(`/companies/${this.companyId}/bookings/${bookingId}`)
+      return response.data
+    } catch (error: any) {
+      console.error(`Error fetching booking ${bookingId}:`, error.response?.data || error.message)
+      throw error
+    }
+  }
+
+  /**
+   * Get client details by ID
+   */
+  async getClient(clientId: string): Promise<any> {
+    try {
+      const response = await this.client.get(`/companies/${this.companyId}/clients/search`, {
+        params: { clientID: clientId }
+      })
+      const clients = response.data
+      if (Array.isArray(clients) && clients.length > 0) {
+        return clients[0]
+      }
+      return null
+    } catch (error: any) {
+      console.error(`Error fetching client ${clientId}:`, error.response?.data || error.message)
+      return null
     }
   }
 }

@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { emailService } from '../../../src/utils/email'
+import { BooklaClient } from '../../../src/lib/bookla'
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
     apiVersion: '2025-11-17.clover',
   })
+}
+
+function getBooklaClient() {
+  return new BooklaClient(
+    process.env.BOOKLA_API_KEY!,
+    process.env.BOOKLA_COMPANY_ID!
+  )
 }
 
 // GET handler for webhook verification/health check
@@ -16,6 +24,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const stripe = getStripe()
+  const bookla = getBooklaClient()
+  
   try {
     const event = await request.json()
 
@@ -32,8 +42,8 @@ export async function POST(request: NextRequest) {
 
     console.log('Booking ID:', booking.id)
 
-    // Try to find client email in various locations
-    const clientEmail = 
+    // Try to find client email in various locations from webhook payload
+    let clientEmail = 
       booking.client?.email || 
       booking.clientEmail || 
       booking.email ||
@@ -43,16 +53,30 @@ export async function POST(request: NextRequest) {
       event.email ||
       null
 
-    console.log('Client email found:', clientEmail)
-
     // Try to find client name
-    const clientName = 
+    let clientName = 
       booking.client?.firstName ||
       booking.clientName ||
       booking.guest?.firstName ||
       booking.firstName ||
       'Client'
 
+    // If no email in webhook, try to fetch from Bookla API
+    if (!clientEmail && booking.clientID) {
+      console.log(`📡 Fetching client details from Bookla for clientID: ${booking.clientID}`)
+      try {
+        const client = await bookla.getClient(booking.clientID)
+        if (client?.email) {
+          clientEmail = client.email
+          clientName = client.firstName || clientName
+          console.log(`✅ Got client from Bookla API: ${clientEmail} (${clientName})`)
+        }
+      } catch (err: any) {
+        console.warn(`⚠️ Could not fetch client from Bookla: ${err.message}`)
+      }
+    }
+
+    console.log('Client email found:', clientEmail)
     console.log('Client name:', clientName)
 
     // Get price from booking - try multiple field names
