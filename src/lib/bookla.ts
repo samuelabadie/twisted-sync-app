@@ -241,24 +241,41 @@ export class BooklaClient {
 
   async getPendingBookings(): Promise<any[]> {
     try {
-      // Bookla API doesn't support status filter, so we fetch recent bookings and filter
+      // Bookla's from/to filters by APPOINTMENT time, not creation time
+      // So we need a wide range to catch all pending bookings (past and future appointments)
       const now = new Date()
-      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      const sixtyDaysAhead = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000)
+      
+      console.log(`📋 Fetching bookings from ${thirtyDaysAgo.toISOString()} to ${sixtyDaysAhead.toISOString()}`)
       
       const response = await this.client.get(`/companies/${this.companyId}/bookings`, {
         params: {
-          from: oneHourAgo.toISOString(),
-          to: now.toISOString(),
-          limit: 100
+          from: thirtyDaysAgo.toISOString(),
+          to: sixtyDaysAhead.toISOString(),
+          limit: 200
         }
       });
       
       const bookings = response.data.bookings || response.data.data || response.data || []
       
+      console.log(`📋 Found ${bookings.length} total bookings from Bookla`)
+      
       // Filter only pending bookings
-      return bookings.filter((b: any) => b.status === 'pending')
-    } catch (error) {
-      console.error('Error fetching pending bookings:', error);
+      const pendingBookings = bookings.filter((b: any) => b.status === 'pending')
+      
+      console.log(`📋 Found ${pendingBookings.length} PENDING bookings`)
+      
+      // Log details of each pending booking
+      pendingBookings.forEach((b: any) => {
+        const createdAt = new Date(b.createdAt || b.created_at)
+        const ageMinutes = Math.round((now.getTime() - createdAt.getTime()) / 60000)
+        console.log(`  → Booking ${b.id}: created ${ageMinutes} min ago, status: ${b.status}`)
+      })
+      
+      return pendingBookings
+    } catch (error: any) {
+      console.error('Error fetching pending bookings:', error.response?.data || error.message);
       return [];
     }
   }
