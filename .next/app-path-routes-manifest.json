@@ -1,0 +1,10 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/bookla-webhook/route": "/api/bookla-webhook",
+  "/api/cleanup-payments/route": "/api/cleanup-payments",
+  "/api/services/route": "/api/services",
+  "/api/stripe-webhook/route": "/api/stripe-webhook",
+  "/api/sync/route": "/api/sync",
+  "/page": "/"
+}

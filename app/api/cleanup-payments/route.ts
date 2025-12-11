@@ -10,10 +10,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const bookla = new BooklaClient(
-    process.env.BOOKLA_API_KEY!,
-    process.env.BOOKLA_COMPANY_ID!
-  )
+  const apiKey = process.env.BOOKLA_API_KEY || ''
+  const companyId = process.env.BOOKLA_COMPANY_ID || ''
+  
+  // Debug: show first/last chars of API key to verify it's the right one
+  console.log(`🔑 API Key: ${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)} (length: ${apiKey.length})`)
+  console.log(`🏢 Company ID: ${companyId}`)
+  
+  const bookla = new BooklaClient(apiKey, companyId)
 
   try {
     console.log('Starting payment cleanup job')
