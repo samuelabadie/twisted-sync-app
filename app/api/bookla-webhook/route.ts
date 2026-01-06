@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import axios from 'axios'
 import { emailService } from '../../../src/utils/email'
-import { BooklaClient } from '../../../src/lib/bookla'
+import { GoogleSheetsService } from '../../../src/lib/google-sheets'
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -9,11 +10,62 @@ function getStripe() {
   })
 }
 
-function getBooklaClient() {
-  return new BooklaClient(
-    process.env.BOOKLA_API_KEY!,
-    process.env.BOOKLA_COMPANY_ID!
-  )
+// Fetch booking details from Bookla API to get client info
+async function getBookingDetailsFromBookla(bookingId: string): Promise<{ email: string; firstName: string } | null> {
+  try {
+    // First, try to get the booking with client details
+    const response = await axios.get(
+      `https://eu.bookla.com/api/v1/companies/${process.env.BOOKLA_COMPANY_ID}/bookings/${bookingId}`,
+      {
+        headers: {
+          'x-api-key': process.env.BOOKLA_API_KEY!,
+          'Content-Type': 'application/json',
+        },
+      }
+    )
+    
+    const booking = response.data
+    console.log('📦 Booking details from Bookla:', JSON.stringify(booking, null, 2))
+    
+    // Check if client info is included
+    if (booking.client?.email) {
+      return {
+        email: booking.client.email,
+        firstName: booking.client.firstName || 'Client',
+      }
+    }
+    
+    // If we have a clientID, try to fetch client separately
+    if (booking.clientID) {
+      try {
+        const clientResponse = await axios.get(
+          `https://eu.bookla.com/api/v1/companies/${process.env.BOOKLA_COMPANY_ID}/clients/search`,
+          {
+            params: { clientID: booking.clientID },
+            headers: {
+              'x-api-key': process.env.BOOKLA_API_KEY!,
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+        
+        const clients = clientResponse.data
+        if (Array.isArray(clients) && clients.length > 0) {
+          return {
+            email: clients[0].email || null,
+            firstName: clients[0].firstName || 'Client',
+          }
+        }
+      } catch (clientError: any) {
+        console.log('Could not fetch client directly:', clientError.message)
+      }
+    }
+    
+    return null
+  } catch (error: any) {
+    console.error('Error fetching booking from Bookla:', error.message)
+    return null
+  }
 }
 
 // GET handler for webhook verification/health check
@@ -24,8 +76,6 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const stripe = getStripe()
-  const bookla = getBooklaClient()
-  
   try {
     const event = await request.json()
 
@@ -42,7 +92,7 @@ export async function POST(request: NextRequest) {
 
     console.log('Booking ID:', booking.id)
 
-    // Try to find client email in various locations from webhook payload
+    // Try to find client email in various locations
     let clientEmail = 
       booking.client?.email || 
       booking.clientEmail || 
@@ -53,7 +103,6 @@ export async function POST(request: NextRequest) {
       event.email ||
       null
 
-    // Try to find client name
     let clientName = 
       booking.client?.firstName ||
       booking.clientName ||
@@ -61,34 +110,14 @@ export async function POST(request: NextRequest) {
       booking.firstName ||
       'Client'
 
-    // Check metaData for email (from custom form field)
-    // Bookla stores custom fields as "fieldname_0", "fieldname_1", etc.
-    if (!clientEmail && booking.metaData) {
-      const metaData = booking.metaData
-      // Look for email in metaData (various possible field names)
-      const emailKey = Object.keys(metaData).find(key => 
-        key.toLowerCase().includes('email') || 
-        key.toLowerCase().includes('mail') ||
-        key.toLowerCase().includes('e-mail')
-      )
-      if (emailKey && metaData[emailKey]) {
-        clientEmail = metaData[emailKey]
-        console.log(`📧 Found email in metaData[${emailKey}]: ${clientEmail}`)
-      }
-    }
-
-    // If still no email, try to fetch from Bookla API
-    if (!clientEmail && booking.clientID) {
-      console.log(`📡 Fetching client details from Bookla for clientID: ${booking.clientID}`)
-      try {
-        const client = await bookla.getClient(booking.clientID)
-        if (client?.email) {
-          clientEmail = client.email
-          clientName = client.firstName || clientName
-          console.log(`✅ Got client from Bookla API: ${clientEmail} (${clientName})`)
-        }
-      } catch (err: any) {
-        console.warn(`⚠️ Could not fetch client from Bookla: ${err.message}`)
+    // If no email found, fetch booking details from Bookla API
+    if (!clientEmail && booking.id) {
+      console.log(`📡 Fetching booking details from Bookla for bookingId: ${booking.id}`)
+      const bookingDetails = await getBookingDetailsFromBookla(booking.id)
+      if (bookingDetails?.email) {
+        clientEmail = bookingDetails.email
+        clientName = bookingDetails.firstName || clientName
+        console.log(`✅ Got client from Bookla: ${clientEmail} (${clientName})`)
       }
     }
 
@@ -188,6 +217,31 @@ export async function POST(request: NextRequest) {
       console.warn(`💡 Checkout URL (manual): ${checkoutUrl}`)
     }
 
+    // Store in Google Sheet for tracking
+    try {
+      if (process.env.GOOGLE_SHEET_ID && process.env.GOOGLE_CREDS) {
+        const sheets = new GoogleSheetsService(
+          process.env.GOOGLE_SHEET_ID,
+          process.env.GOOGLE_CREDS
+        )
+        
+        await sheets.addBooking({
+          bookingId: booking.id,
+          clientEmail: clientEmail || '',
+          amount: totalAmount,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+          checkoutUrl: checkoutUrl
+        })
+        console.log(`📝 Booking saved to Sheet`)
+      } else {
+        console.warn('⚠️ Google Sheets credentials missing, skipping storage')
+      }
+    } catch (sheetError: any) {
+       console.error('❌ Failed to save booking to Sheet:', sheetError.message)
+       // Don't fail the request
+    }
+
     return NextResponse.json({ 
       received: true, 
       checkoutUrl,
@@ -200,3 +254,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
+

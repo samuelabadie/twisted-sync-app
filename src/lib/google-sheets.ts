@@ -1,9 +1,10 @@
 import { google } from 'googleapis';
-import { Service } from '../types';
+import { Service, BookingRecord } from '../types';
 
 export class GoogleSheetsService {
   private sheets: any;
   private sheetId: string;
+  private bookingsSheetChecked: boolean = false;
 
   constructor(sheetId: string, credentialsJson: string) {
     this.sheetId = sheetId;
@@ -18,7 +19,7 @@ export class GoogleSheetsService {
     try {
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.sheetId,
-        range: 'A2:S', // A to S (added Service_Type and Service_Type_ID)
+        range: 'A2:S', // Default sheet, columns A to S
       });
 
       const rows = response.data.values;
@@ -45,8 +46,8 @@ export class GoogleSheetsService {
           option_extra_duration: parseInt(row[14] || '0'),
           bookla_updated_at: row[15],
           notes_internal: row[16],
-          service_type: row[17],          // Col R - Nom du type
-          service_type_id: row[18],       // Col S - ID Webflow du type
+          service_type: row[17],          // Col R - Service Type Name
+          service_type_id: row[18],       // Col S - Service Type ID
           rowIndex: index + 2,
         };
       });
@@ -60,13 +61,7 @@ export class GoogleSheetsService {
     try {
       const updates: { range: string; values: any[][] }[] = [];
 
-      // Mapping based on CSV structure:
-      // Webflow_ID = Col A (0)
-      // Bookla_ServiceID = Col D (3)
-      // Bookla_UpdatedAt = Col P (15)
-      // Service_Type = Col R (17)
-      // Service_Type_ID = Col S (18)
-
+      // Mapping based on CSV structure (assuming default sheet):
       if (data.webflow_id !== undefined) {
         updates.push({ range: `A${rowIndex}`, values: [[data.webflow_id]] });
       }
@@ -91,6 +86,153 @@ export class GoogleSheetsService {
     }
   }
 
+  // --- BOOKINGS MANAGEMENT ---
+
+  private async ensureBookingsSheet(): Promise<void> {
+    if (this.bookingsSheetChecked) return;
+
+    try {
+      const meta = await this.sheets.spreadsheets.get({
+        spreadsheetId: this.sheetId,
+      });
+
+      const sheets = meta.data.sheets;
+      const bookingsSheet = sheets.find((s: any) => s.properties.title === 'Bookings');
+
+      if (!bookingsSheet) {
+        console.log('Creating Bookings sheet...');
+        await this.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: this.sheetId,
+          requestBody: {
+            requests: [
+              {
+                addSheet: {
+                  properties: { title: 'Bookings' }
+                }
+              }
+            ]
+          }
+        });
+        
+        // Add headers
+        await this.sheets.spreadsheets.values.update({
+          spreadsheetId: this.sheetId,
+          range: 'Bookings!A1:F1',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: {
+            values: [['Booking_ID', 'Client_Email', 'Amount_EUR', 'Status', 'Created_At', 'Checkout_URL']]
+          }
+        });
+      }
+
+      this.bookingsSheetChecked = true;
+    } catch (error: any) {
+      console.error('Error ensuring Bookings sheet exists:', error.message);
+      // Fallback: try to proceed anyway, maybe it exists but we can't read meta?
+    }
+  }
+
+  async addBooking(booking: BookingRecord): Promise<void> {
+    await this.ensureBookingsSheet();
+
+    try {
+      const values = [[
+        booking.bookingId,
+        booking.clientEmail,
+        booking.amount,
+        booking.status,
+        booking.createdAt,
+        booking.checkoutUrl || ''
+      ]];
+
+      await this.sheets.spreadsheets.values.append({
+        spreadsheetId: this.sheetId,
+        range: 'Bookings!A:F',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values }
+      });
+      console.log(`Booking ${booking.bookingId} added to Sheet.`);
+    } catch (error) {
+      console.error('Error adding booking to Sheet:', error);
+      throw error;
+    }
+  }
+
+  async getPendingBookings(): Promise<BookingRecord[]> {
+    await this.ensureBookingsSheet();
+
+    try {
+      const response = await this.sheets.spreadsheets.values.get({
+        spreadsheetId: this.sheetId,
+        range: 'Bookings!A2:F',
+      });
+
+      const rows = response.data.values;
+      if (!rows || rows.length === 0) {
+        return [];
+      }
+
+      const pending: BookingRecord[] = [];
+      rows.forEach((row: any[], index: number) => {
+        // Check status (Col D / index 3)
+        if (row[3] === 'pending') {
+          pending.push({
+            bookingId: row[0],
+            clientEmail: row[1],
+            amount: parseFloat(row[2] || '0'),
+            status: row[3],
+            createdAt: row[4],
+            checkoutUrl: row[5],
+            rowIndex: index + 2 // A2 start
+          });
+        }
+      });
+      return pending;
+    } catch (error) {
+      console.error('Error getting pending bookings:', error);
+      return [];
+    }
+  }
+
+  async updateBookingStatus(bookingId: string, status: string): Promise<void> {
+     await this.ensureBookingsSheet();
+
+     // First find the row
+     // This is inefficient (scan all), but simple for now. 
+     // Optimization: Cache bookings or use batchGet.
+     
+     try {
+        const response = await this.sheets.spreadsheets.values.get({
+            spreadsheetId: this.sheetId,
+            range: 'Bookings!A:A', // Get only IDs
+        });
+        
+        const rows = response.data.values;
+        if (!rows) return;
+
+        const rowIndex = rows.findIndex((r: any[]) => r[0] === bookingId);
+        
+        if (rowIndex !== -1) {
+            const actualRowIndex = rowIndex + 1; // 1-based
+            await this.sheets.spreadsheets.values.update({
+                spreadsheetId: this.sheetId,
+                range: `Bookings!D${actualRowIndex}`,
+                valueInputOption: 'USER_ENTERED',
+                requestBody: {
+                    values: [[status]]
+                }
+            });
+            console.log(`Updated booking ${bookingId} status to ${status} in Sheet.`);
+        } else {
+            console.warn(`Booking ${bookingId} not found in Sheet.`);
+        }
+
+     } catch (error) {
+         console.error(`Error updating booking status for ${bookingId}:`, error);
+         throw error;
+     }
+  }
+
   private async performUpdate(rowIndex: number, updates: any[], retryCount = 0): Promise<void> {
     try {
         await this.sheets.spreadsheets.values.batchUpdate({
@@ -108,7 +250,6 @@ export class GoogleSheetsService {
         return this.performUpdate(rowIndex, updates, retryCount + 1);
       }
       console.error(`Error updating row ${rowIndex} after ${retryCount} retries:`, error);
-      // We do NOT throw here to avoid breaking the entire loop
     }
   }
 }

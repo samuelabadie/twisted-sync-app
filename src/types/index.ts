@@ -50,3 +50,13 @@ export interface Booking {
   status: 'pending' | 'confirmed' | 'cancelled';
   createdAt: Date;
 }
+
+export interface BookingRecord {
+  bookingId: string;
+  clientEmail: string;
+  amount: number;
+  status: string;
+  createdAt: string;
+  checkoutUrl?: string;
+  rowIndex?: number;
+}

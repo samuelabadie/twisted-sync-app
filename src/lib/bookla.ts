@@ -241,90 +241,18 @@ export class BooklaClient {
 
   async getPendingBookings(): Promise<any[]> {
     try {
-      // Bookla's from/to filters by APPOINTMENT time, not creation time
-      // So we need a wide range to catch all pending bookings (past and future appointments)
-      const now = new Date()
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-      const sixtyDaysAhead = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000)
-      
-      console.log(`📋 Fetching bookings from ${thirtyDaysAgo.toISOString()} to ${sixtyDaysAhead.toISOString()}`)
-      
+      // Assumption: Bookla API supports filtering by status
+      // If not, we'd have to fetch all and filter, which is inefficient
       const response = await this.client.get(`/companies/${this.companyId}/bookings`, {
         params: {
-          from: thirtyDaysAgo.toISOString(),
-          to: sixtyDaysAhead.toISOString(),
-          limit: 200
+          status: 'pending', // or whatever the status is for unpaid
+          // created_before: ... // if supported
         }
       });
-      
-      const bookings = response.data.bookings || response.data.data || response.data || []
-      
-      console.log(`📋 Found ${bookings.length} total bookings from Bookla`)
-      
-      // Filter only pending bookings
-      const pendingBookings = bookings.filter((b: any) => b.status === 'pending')
-      
-      console.log(`📋 Found ${pendingBookings.length} PENDING bookings`)
-      
-      // Log details of each pending booking
-      pendingBookings.forEach((b: any) => {
-        const createdAt = new Date(b.createdAt || b.created_at)
-        const ageMinutes = Math.round((now.getTime() - createdAt.getTime()) / 60000)
-        console.log(`  → Booking ${b.id}: created ${ageMinutes} min ago, status: ${b.status}`)
-      })
-      
-      return pendingBookings
-    } catch (error: any) {
-      console.error('Error fetching pending bookings:', error.response?.data || error.message);
+      return response.data.data || [];
+    } catch (error) {
+      console.error('Error fetching pending bookings:', error);
       return [];
-    }
-  }
-
-  /**
-   * Get booking details by ID
-   */
-  async getBooking(bookingId: string): Promise<any> {
-    try {
-      const response = await this.client.get(`/companies/${this.companyId}/bookings/${bookingId}`)
-      return response.data
-    } catch (error: any) {
-      console.error(`Error fetching booking ${bookingId}:`, error.response?.data || error.message)
-      throw error
-    }
-  }
-
-  /**
-   * Get client details by ID
-   */
-  async getClient(clientId: string): Promise<any> {
-    try {
-      console.log(`🔍 Calling Bookla API: /clients/search?clientID=${clientId}`)
-      const response = await this.client.get(`/companies/${this.companyId}/clients/search`, {
-        params: { clientID: clientId }
-      })
-      console.log(`📦 Bookla client response:`, JSON.stringify(response.data, null, 2))
-      
-      const clients = response.data
-      if (Array.isArray(clients) && clients.length > 0) {
-        console.log(`✅ Found client: ${clients[0].email || 'NO EMAIL'} (${clients[0].firstName || 'NO NAME'})`)
-        return clients[0]
-      }
-      
-      // Maybe the response is wrapped in { clients: [...] } or { data: [...] }
-      if (clients?.clients && Array.isArray(clients.clients) && clients.clients.length > 0) {
-        console.log(`✅ Found client (wrapped): ${clients.clients[0].email}`)
-        return clients.clients[0]
-      }
-      if (clients?.data && Array.isArray(clients.data) && clients.data.length > 0) {
-        console.log(`✅ Found client (data wrapped): ${clients.data[0].email}`)
-        return clients.data[0]
-      }
-      
-      console.warn(`⚠️ No client found for clientID: ${clientId}`)
-      return null
-    } catch (error: any) {
-      console.error(`❌ Error fetching client ${clientId}:`, error.response?.status, error.response?.data || error.message)
-      return null
     }
   }
 }
