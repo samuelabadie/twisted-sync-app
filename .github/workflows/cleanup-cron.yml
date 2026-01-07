@@ -1,4 +1,4 @@
-name: Trigger Payment Cleanup
+name: Cleanup Payments Cron
 
 on:
   schedule:
@@ -12,7 +12,5 @@ jobs:
     steps:
       - name: Call Cleanup API
         run: |
-          curl -X GET ${{ secrets.VERCEL_APP_URL }}/api/cleanup-payments \
-          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-          --fail
-
+          curl -X GET "https://twisted-sync-app.vercel.app/api/cleanup-payments" \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
