@@ -3,11 +3,18 @@ import { BooklaClient } from '../../../src/lib/bookla'
 import { GoogleSheetsService } from '../../../src/lib/google-sheets'
 
 export async function GET(request: NextRequest) {
-  // Optional: Verify cron secret
+  // Allow execution via query param OR header
+  const { searchParams } = new URL(request.url)
+  const queryKey = searchParams.get('key')
+  
   const authHeader = request.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
   
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  const isAuthorized = 
+    (cronSecret && authHeader === `Bearer ${cronSecret}`) || 
+    (cronSecret && queryKey === cronSecret)
+
+  if (!isAuthorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
