@@ -112,6 +112,11 @@ export async function POST(request: NextRequest) {
     if (existingRow) {
       return NextResponse.json({ error: `Le service "${name}" existe déjà` }, { status: 400 })
     }
+
+    // 1. Fetch all resources (coiffeuses/coiffeurs) to associate them automatically
+    const allResources = await bookla.getResources();
+    const allResourceIds = allResources.map((r: any) => r.id);
+    console.log(`Associating ${allResourceIds.length} resources to new service(s).`);
     
     const results: any[] = []
     let parentWebflowId = ''
@@ -124,6 +129,7 @@ export async function POST(request: NextRequest) {
       price: price,
       bufferBefore: bufferBefore,
       bufferAfter: bufferAfter,
+      resources: allResourceIds, // Associate all resources
     })
     
     parentWebflowId = await webflow.createItem(collectionId, {
@@ -160,6 +166,7 @@ export async function POST(request: NextRequest) {
         price: optionPrice,
         bufferBefore: bufferBefore,
         bufferAfter: bufferAfter,
+        resources: allResourceIds, // Associate all resources
       })
       
       const webflowId = await webflow.createItem(collectionId, {

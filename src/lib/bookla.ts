@@ -32,6 +32,32 @@ export class BooklaClient {
     }
   }
 
+  async getResources(): Promise<any[]> {
+    try {
+      const response = await this.client.get(`/companies/${this.companyId}/resources`);
+      return Array.isArray(response.data) ? response.data : (response.data.data || []);
+    } catch (error: any) {
+      console.error('Error fetching resources from Bookla:', error.message);
+      return [];
+    }
+  }
+
+  async linkResourceToService(serviceId: string, resourceId: string): Promise<void> {
+    try {
+      // POST /companies/{id}/services/{serviceId}/links
+      await this.client.post(`/companies/${this.companyId}/services/${serviceId}/links`, {
+        resourceID: resourceId,
+        relatedResourceIDs: {
+          all: [],
+          any: []
+        }
+      });
+    } catch (error: any) {
+      // If resource is already linked or invalid, log but don't fail hard
+      console.warn(`Warning: Could not link resource ${resourceId} to service ${serviceId}: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
   async createService(payload: any): Promise<string> {
     try {
       const name = payload.title || payload.name;
@@ -58,12 +84,15 @@ export class BooklaClient {
         settings.bufferAfter = 'PT15M'; // Default 15 min buffer after
       }
       
-      const data = {
+      const data: any = {
         name,
         color: payload.color || '#CFC4E8', // Nice purple color like existing services
         type: 'fixed',
         settings,
       };
+
+      // Note: We don't send 'resources' in POST /services as it's not supported there.
+      // We will link them AFTER creation.
       
       const response = await this.client.post(`/companies/${this.companyId}/services`, data);
       const serviceId = response.data.id;
@@ -71,6 +100,13 @@ export class BooklaClient {
       // Create price rule if price is provided
       if (payload.price !== undefined && payload.price > 0) {
         await this.createPriceRule(serviceId, payload.price);
+      }
+
+      // Link resources if provided
+      if (payload.resources && Array.isArray(payload.resources)) {
+        for (const resourceId of payload.resources) {
+            await this.linkResourceToService(serviceId, resourceId);
+        }
       }
       
       return serviceId;
