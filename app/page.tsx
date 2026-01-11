@@ -48,13 +48,14 @@ export default function Dashboard() {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
-  const [newService, setNewService] = useState({ name: '', price: 100, duration: 120, bufferBefore: 15, bufferAfter: 15, serviceType: '', serviceTypeId: '' })
+  const [newService, setNewService] = useState({ name: '', price: 100, duration: 120, bufferBefore: 15, bufferAfter: 15, serviceType: '', serviceTypeId: '', resources: [] as string[] })
   const [addingService, setAddingService] = useState(false)
   const [deletingService, setDeletingService] = useState<string | null>(null)
   const [togglingVisibility, setTogglingVisibility] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<any>(null)
   const [editingType, setEditingType] = useState<{ serviceName: string; webflowId: string; currentTypeId: string } | null>(null)
   const [updatingType, setUpdatingType] = useState(false)
+  const [resources, setResources] = useState<any[]>([])
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -65,7 +66,18 @@ export default function Dashboard() {
   useEffect(() => {
     loadServices()
     loadServiceTypes()
+    loadResources()
   }, [])
+
+  async function loadResources() {
+    try {
+      const res = await fetch('/api/resources') // We need to create this endpoint
+      const data = await res.json()
+      if (data.resources) setResources(data.resources)
+    } catch (err: any) {
+      console.error('Error loading resources:', err.message)
+    }
+  }
 
   async function loadServiceTypes() {
     try {
@@ -119,7 +131,7 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setShowAddForm(false)
-      setNewService({ name: '', price: 100, duration: 120, bufferBefore: 15, bufferAfter: 15, serviceType: '', serviceTypeId: '' })
+      setNewService({ name: '', price: 100, duration: 120, bufferBefore: 15, bufferAfter: 15, serviceType: '', serviceTypeId: '', resources: [] })
       await loadServices()
     } catch (err: any) {
       setError(err.message)
@@ -527,6 +539,44 @@ export default function Dashboard() {
                 </select>
                 <p className="text-xs text-stone-500 mt-1">Le service sera ajouté à ce type sur Webflow</p>
               </div>
+
+              {/* Resources Selection */}
+              <div>
+                <label className="block text-sm font-medium text-stone-300 mb-2">Employés / Ressources</label>
+                <div className="bg-stone-800/50 border border-stone-700 rounded-xl p-3 max-h-40 overflow-y-auto">
+                  {resources.length === 0 ? (
+                    <p className="text-sm text-stone-500 italic">Chargement des ressources...</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {resources.map(resource => (
+                        <label key={resource.id} className="flex items-center gap-3 cursor-pointer hover:bg-stone-700/50 p-1 rounded transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={newService.resources.includes(resource.id)}
+                            onChange={e => {
+                              const checked = e.target.checked
+                              setNewService(prev => ({
+                                ...prev,
+                                resources: checked 
+                                  ? [...prev.resources, resource.id]
+                                  : prev.resources.filter(id => id !== resource.id)
+                              }))
+                            }}
+                            className="w-4 h-4 rounded border-stone-600 bg-stone-700 text-amber-500 focus:ring-amber-500/50"
+                          />
+                          <span className="text-stone-300 text-sm">{resource.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-stone-500 mt-1">
+                  {newService.resources.length === 0 
+                    ? "⚠️ Aucune ressource sélectionnée (le service ne sera pas réservable)" 
+                    : `${newService.resources.length} ressource(s) sélectionnée(s)`}
+                </p>
+              </div>
+
               <p className="text-sm text-stone-500">
                 Les 3 options (Coupe des pointes, Shampoing démêlant, Shampoing et soin) seront ajoutées automatiquement.
               </p>

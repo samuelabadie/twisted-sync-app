@@ -77,7 +77,7 @@ export async function GET() {
 // POST - Create a new service with options
 export async function POST(request: NextRequest) {
   try {
-    const { name, price, duration, bufferBefore = 15, bufferAfter = 15, serviceType, serviceTypeId } = await request.json()
+    const { name, price, duration, bufferBefore = 15, bufferAfter = 15, serviceType, serviceTypeId, resources } = await request.json()
     
     if (!name || price === undefined || duration === undefined) {
       return NextResponse.json({ error: 'name, price, and duration are required' }, { status: 400 })
@@ -113,10 +113,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Le service "${name}" existe déjà` }, { status: 400 })
     }
 
-    // 1. Fetch all resources (coiffeuses/coiffeurs) to associate them automatically
-    const allResources = await bookla.getResources();
-    const allResourceIds = allResources.map((r: any) => r.id);
-    console.log(`Associating ${allResourceIds.length} resources to new service(s).`);
+    // Determine resources to associate
+    // If provided in payload, use them. Otherwise fetch all (fallback/legacy behavior)
+    let resourceIdsToLink = resources;
+    
+    if (!resourceIdsToLink || !Array.isArray(resourceIdsToLink) || resourceIdsToLink.length === 0) {
+        console.log('No resources provided, fetching all resources as default...');
+        const allResources = await bookla.getResources();
+        resourceIdsToLink = allResources.map((r: any) => r.id);
+    }
+    
+    console.log(`Associating ${resourceIdsToLink.length} resources to new service(s).`);
     
     const results: any[] = []
     let parentWebflowId = ''
@@ -129,7 +136,7 @@ export async function POST(request: NextRequest) {
       price: price,
       bufferBefore: bufferBefore,
       bufferAfter: bufferAfter,
-      resources: allResourceIds, // Associate all resources
+      resources: resourceIdsToLink, // Pass explicit list
     })
     
     parentWebflowId = await webflow.createItem(collectionId, {
@@ -166,7 +173,7 @@ export async function POST(request: NextRequest) {
         price: optionPrice,
         bufferBefore: bufferBefore,
         bufferAfter: bufferAfter,
-        resources: allResourceIds, // Associate all resources
+        resources: resourceIdsToLink, // Pass explicit list
       })
       
       const webflowId = await webflow.createItem(collectionId, {
