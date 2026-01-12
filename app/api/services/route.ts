@@ -7,9 +7,27 @@ import axios from 'axios'
 
 // Default options for new services
 const DEFAULT_OPTIONS = [
-  { slug: 'coupe-des-pointes', name: 'Coupe des pointes', extraPrice: 10, extraDuration: 20 },
-  { slug: 'shampoing-dmlant', name: 'Shampoing démêlant', extraPrice: 10, extraDuration: 20 },
-  { slug: 'shampoing-et-soin', name: 'Shampoing et soin', extraPrice: 20, extraDuration: 40 },
+  { 
+    slug: 'coupe-des-pointes', 
+    name: 'Coupe des pointes', 
+    extraPrice: 10, 
+    extraDuration: 20,
+    webflowOptionId: '7f5f3a59b25ca4006cac5a7f61f901d2'
+  },
+  { 
+    slug: 'shampoing-dmlant', 
+    name: 'Shampoing démêlant', 
+    extraPrice: 20, 
+    extraDuration: 20,
+    webflowOptionId: '11b1b347018ca032452da6295b7a050b'
+  },
+  { 
+    slug: 'shampoing-et-soin', 
+    name: 'Shampoing et soin', 
+    extraPrice: 35, 
+    extraDuration: 40,
+    webflowOptionId: '0c5cfab3d03f49c48d87cc188d136c30'
+  },
 ]
 
 function toSlug(text: string): string {
@@ -184,6 +202,7 @@ export async function POST(request: NextRequest) {
         'bookla-id': booklaId,
         'is-visible': true,
         'service-parent': parentWebflowId,
+        'option': option.webflowOptionId,
       })
       
       results.push({

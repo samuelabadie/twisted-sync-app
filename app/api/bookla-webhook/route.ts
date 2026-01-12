@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
     const depositAmount = totalAmount * 0.30
 
     // Create Stripe Checkout Session with 15-minute expiration
-    const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://twistedbraids.fr/succes-paiement'
+    const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://twistedbraids.fr'
     const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://twistedbraids.fr/echec-paiement'
     
     // Expire in 15 minutes (must be at least 30 minutes in the future for Stripe)
