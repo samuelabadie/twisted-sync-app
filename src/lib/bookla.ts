@@ -58,6 +58,16 @@ export class BooklaClient {
     }
   }
 
+  async getService(id: string): Promise<any> {
+    try {
+      const response = await this.client.get(`/companies/${this.companyId}/services/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error fetching service ${id}:`, error);
+      throw error;
+    }
+  }
+
   async createService(payload: any): Promise<string> {
     try {
       const name = payload.title || payload.name;
