@@ -95,7 +95,7 @@ export async function GET() {
 // POST - Create a new service with options
 export async function POST(request: NextRequest) {
   try {
-    const { name, price, duration, bufferBefore = 15, bufferAfter = 15, serviceType, serviceTypeId, resources } = await request.json()
+    const { name, price, duration, bufferBefore = 15, bufferAfter = 15, serviceType, serviceTypeId, resources, selectedOptions } = await request.json()
     
     if (!name || price === undefined || duration === undefined) {
       return NextResponse.json({ error: 'name, price, and duration are required' }, { status: 400 })
@@ -178,8 +178,17 @@ export async function POST(request: NextRequest) {
       webflowId: parentWebflowId,
     })
     
+    // Filter options based on selection
+    // If selectedOptions is provided, filter DEFAULT_OPTIONS. Otherwise use all.
+    let optionsToCreate = DEFAULT_OPTIONS;
+    if (selectedOptions && Array.isArray(selectedOptions)) {
+        optionsToCreate = DEFAULT_OPTIONS.filter(opt => selectedOptions.includes(opt.slug));
+    }
+
+    console.log(`Creating ${optionsToCreate.length} options for service "${name}"`);
+    
     // Create options
-    for (const option of DEFAULT_OPTIONS) {
+    for (const option of optionsToCreate) {
       const optionName = `${name} + ${option.name}`
       const optionPrice = price + option.extraPrice
       const optionDuration = duration + option.extraDuration
@@ -261,7 +270,7 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json({ 
       success: true, 
-      message: `Service "${name}" créé avec ${DEFAULT_OPTIONS.length} options${serviceType ? ` (Type: ${serviceType})` : ''}`,
+      message: `Service "${name}" créé avec ${optionsToCreate.length} options${serviceType ? ` (Type: ${serviceType})` : ''}`,
       created: results.length 
     })
     

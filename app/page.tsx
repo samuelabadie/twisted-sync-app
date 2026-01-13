@@ -40,6 +40,13 @@ interface ServiceType {
   serviceIds: string[]
 }
 
+// Options disponibles (doit correspondre aux slugs du backend)
+const AVAILABLE_OPTIONS = [
+  { slug: 'coupe-des-pointes', name: 'Coupe des pointes (+10€)' },
+  { slug: 'shampoing-dmlant', name: 'Shampoing démêlant (+20€)' },
+  { slug: 'shampoing-et-soin', name: 'Shampoing et soin (+35€)' },
+]
+
 export default function Dashboard() {
   const router = useRouter()
   const [services, setServices] = useState<GroupedService[]>([])
@@ -48,7 +55,17 @@ export default function Dashboard() {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
-  const [newService, setNewService] = useState({ name: '', price: 100, duration: 120, bufferBefore: 15, bufferAfter: 15, serviceType: '', serviceTypeId: '', resources: [] as string[] })
+  const [newService, setNewService] = useState({ 
+    name: '', 
+    price: 100, 
+    duration: 120, 
+    bufferBefore: 15, 
+    bufferAfter: 15, 
+    serviceType: '', 
+    serviceTypeId: '', 
+    resources: [] as string[],
+    selectedOptions: ['coupe-des-pointes', 'shampoing-dmlant', 'shampoing-et-soin'] // Toutes cochées par défaut
+  })
   const [addingService, setAddingService] = useState(false)
   const [deletingService, setDeletingService] = useState<string | null>(null)
   const [togglingVisibility, setTogglingVisibility] = useState<string | null>(null)
@@ -131,7 +148,17 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setShowAddForm(false)
-      setNewService({ name: '', price: 100, duration: 120, bufferBefore: 15, bufferAfter: 15, serviceType: '', serviceTypeId: '', resources: [] })
+      setNewService({ 
+        name: '', 
+        price: 100, 
+        duration: 120, 
+        bufferBefore: 15, 
+        bufferAfter: 15, 
+        serviceType: '', 
+        serviceTypeId: '', 
+        resources: [],
+        selectedOptions: ['coupe-des-pointes', 'shampoing-dmlant', 'shampoing-et-soin']
+      })
       await loadServices()
     } catch (err: any) {
       setError(err.message)
@@ -454,133 +481,177 @@ export default function Dashboard() {
 
       {/* Add Service Modal */}
       {showAddForm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-stone-900/95 backdrop-blur-sm border border-stone-800 rounded-2xl shadow-xl p-8 w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in p-4 overflow-y-auto">
+          <div className="bg-stone-900/95 backdrop-blur-sm border border-stone-800 rounded-2xl shadow-xl p-8 w-full max-w-4xl mx-auto my-8">
             <h2 className="text-2xl font-bold text-amber-100 mb-6">Nouveau service</h2>
-            <form onSubmit={handleAddService} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-stone-300 mb-2">Nom du service</label>
-                <input
-                  type="text"
-                  value={newService.name}
-                  onChange={e => setNewService({ ...newService, name: e.target.value })}
-                  placeholder="Ex: Tresses africaines"
-                  className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-stone-300 mb-2">Prix (€)</label>
-                  <input
-                    type="number"
-                    value={newService.price}
-                    onChange={e => setNewService({ ...newService, price: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
-                    min="0"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-300 mb-2">Durée (min)</label>
-                  <input
-                    type="number"
-                    value={newService.duration}
-                    onChange={e => setNewService({ ...newService, duration: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
-                    min="15"
-                    step="15"
-                    required
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-stone-300 mb-2">Buffer avant (min)</label>
-                  <input
-                    type="number"
-                    value={newService.bufferBefore}
-                    onChange={e => setNewService({ ...newService, bufferBefore: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
-                    min="0"
-                    step="5"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-300 mb-2">Buffer après (min)</label>
-                  <input
-                    type="number"
-                    value={newService.bufferAfter}
-                    onChange={e => setNewService({ ...newService, bufferAfter: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
-                    min="0"
-                    step="5"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-stone-300 mb-2">Type de service</label>
-                <select
-                  value={newService.serviceTypeId}
-                  onChange={e => {
-                    const selectedType = serviceTypes.find(t => t.id === e.target.value)
-                    setNewService({ 
-                      ...newService, 
-                      serviceTypeId: e.target.value,
-                      serviceType: selectedType?.name || ''
-                    })
-                  }}
-                  className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
-                >
-                  <option value="">-- Sélectionner un type --</option>
-                  {serviceTypes.map(type => (
-                    <option key={type.id} value={type.id}>{type.name}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-stone-500 mt-1">Le service sera ajouté à ce type sur Webflow</p>
-              </div>
+            <form onSubmit={handleAddService} className="space-y-6">
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Colonne Gauche : Infos de base */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-stone-200 border-b border-stone-800 pb-2 mb-4">Informations</h3>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-stone-300 mb-2">Nom du service</label>
+                    <input
+                      type="text"
+                      value={newService.name}
+                      onChange={e => setNewService({ ...newService, name: e.target.value })}
+                      placeholder="Ex: Tresses africaines"
+                      className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                      required
+                    />
+                  </div>
 
-              {/* Resources Selection */}
-              <div>
-                <label className="block text-sm font-medium text-stone-300 mb-2">Employés / Ressources</label>
-                <div className="bg-stone-800/50 border border-stone-700 rounded-xl p-3 max-h-40 overflow-y-auto">
-                  {resources.length === 0 ? (
-                    <p className="text-sm text-stone-500 italic">Chargement des ressources...</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {resources.map(resource => (
-                        <label key={resource.id} className="flex items-center gap-3 cursor-pointer hover:bg-stone-700/50 p-1 rounded transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={newService.resources.includes(resource.id)}
-                            onChange={e => {
-                              const checked = e.target.checked
-                              setNewService(prev => ({
-                                ...prev,
-                                resources: checked 
-                                  ? [...prev.resources, resource.id]
-                                  : prev.resources.filter(id => id !== resource.id)
-                              }))
-                            }}
-                            className="w-4 h-4 rounded border-stone-600 bg-stone-700 text-amber-500 focus:ring-amber-500/50"
-                          />
-                          <span className="text-stone-300 text-sm">{resource.name}</span>
-                        </label>
-                      ))}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-stone-300 mb-2">Prix (€)</label>
+                      <input
+                        type="number"
+                        value={newService.price}
+                        onChange={e => setNewService({ ...newService, price: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                        min="0"
+                        required
+                      />
                     </div>
-                  )}
+                    <div>
+                      <label className="block text-sm font-medium text-stone-300 mb-2">Durée (min)</label>
+                      <input
+                        type="number"
+                        value={newService.duration}
+                        onChange={e => setNewService({ ...newService, duration: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                        min="15"
+                        step="15"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-stone-300 mb-2">Buffer avant (min)</label>
+                      <input
+                        type="number"
+                        value={newService.bufferBefore}
+                        onChange={e => setNewService({ ...newService, bufferBefore: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                        min="0"
+                        step="5"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-stone-300 mb-2">Buffer après (min)</label>
+                      <input
+                        type="number"
+                        value={newService.bufferAfter}
+                        onChange={e => setNewService({ ...newService, bufferAfter: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                        min="0"
+                        step="5"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-stone-300 mb-2">Type de service</label>
+                    <select
+                      value={newService.serviceTypeId}
+                      onChange={e => {
+                        const selectedType = serviceTypes.find(t => t.id === e.target.value)
+                        setNewService({ 
+                          ...newService, 
+                          serviceTypeId: e.target.value,
+                          serviceType: selectedType?.name || ''
+                        })
+                      }}
+                      className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                    >
+                      <option value="">-- Sélectionner un type --</option>
+                      {serviceTypes.map(type => (
+                        <option key={type.id} value={type.id}>{type.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-stone-500 mt-1">Le service sera ajouté à ce type sur Webflow</p>
+                  </div>
                 </div>
-                <p className="text-xs text-stone-500 mt-1">
-                  {newService.resources.length === 0 
-                    ? "⚠️ Aucune ressource sélectionnée (le service ne sera pas réservable)" 
-                    : `${newService.resources.length} ressource(s) sélectionnée(s)`}
-                </p>
+
+                {/* Colonne Droite : Paramètres avancés */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-stone-200 border-b border-stone-800 pb-2 mb-4">Paramètres</h3>
+
+                  {/* Resources Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-stone-300 mb-2">Employés / Ressources</label>
+                    <div className="bg-stone-800/50 border border-stone-700 rounded-xl p-3 max-h-40 overflow-y-auto custom-scrollbar">
+                      {resources.length === 0 ? (
+                        <p className="text-sm text-stone-500 italic">Chargement des ressources...</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {resources.map(resource => (
+                            <label key={resource.id} className="flex items-center gap-3 cursor-pointer hover:bg-stone-700/50 p-2 rounded-lg transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={newService.resources.includes(resource.id)}
+                                onChange={e => {
+                                  const checked = e.target.checked
+                                  setNewService(prev => ({
+                                    ...prev,
+                                    resources: checked 
+                                      ? [...prev.resources, resource.id]
+                                      : prev.resources.filter(id => id !== resource.id)
+                                  }))
+                                }}
+                                className="w-5 h-5 rounded border-stone-600 bg-stone-700 text-amber-500 focus:ring-amber-500/50"
+                              />
+                              <span className="text-stone-300 text-sm font-medium">{resource.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-stone-500 mt-1">
+                      {newService.resources.length === 0 
+                        ? "⚠️ Aucune ressource sélectionnée (le service ne sera pas réservable)" 
+                        : `${newService.resources.length} ressource(s) sélectionnée(s)`}
+                    </p>
+                  </div>
+
+                  {/* Options Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-stone-300 mb-2">Options incluses</label>
+                    <div className="bg-stone-800/50 border border-stone-700 rounded-xl p-3">
+                      <div className="space-y-2">
+                        {AVAILABLE_OPTIONS.map(opt => (
+                          <label key={opt.slug} className="flex items-center gap-3 cursor-pointer hover:bg-stone-700/50 p-2 rounded-lg transition-colors">
+                            <input
+                              type="checkbox"
+                              checked={newService.selectedOptions.includes(opt.slug)}
+                              onChange={e => {
+                                const checked = e.target.checked
+                                setNewService(prev => ({
+                                  ...prev,
+                                  selectedOptions: checked 
+                                    ? [...prev.selectedOptions, opt.slug]
+                                    : prev.selectedOptions.filter(slug => slug !== opt.slug)
+                                }))
+                              }}
+                              className="w-5 h-5 rounded border-stone-600 bg-stone-700 text-amber-500 focus:ring-amber-500/50"
+                            />
+                            <span className="text-stone-300 text-sm font-medium">{opt.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-xs text-stone-500 mt-1">
+                      Décochez les options que vous ne voulez pas créer pour ce service.
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              <p className="text-sm text-stone-500">
-                Les 3 options (Coupe des pointes, Shampoing démêlant, Shampoing et soin) seront ajoutées automatiquement.
-              </p>
-              <div className="flex gap-3 pt-4">
+              <div className="flex gap-3 pt-6 border-t border-stone-800 mt-6">
                 <button
                   type="button"
                   onClick={() => setShowAddForm(false)}
@@ -591,9 +662,13 @@ export default function Dashboard() {
                 <button
                   type="submit"
                   disabled={addingService}
-                  className="px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg flex-1"
+                  className="px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {addingService ? 'Création...' : 'Créer le service'}
+                  {addingService ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="animate-spin">🔄</span> Création en cours...
+                    </span>
+                  ) : 'Créer le service'}
                 </button>
               </div>
             </form>
