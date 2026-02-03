@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
     "@tailwindcss/postcss": "^4.1.17",
     "@types/micro": "^10.0.0",
     "@types/node": "^24.10.1",

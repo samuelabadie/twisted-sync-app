@@ -301,4 +301,112 @@ export class BooklaClient {
       return [];
     }
   }
+
+  // ========== RESOURCE/EMPLOYEE MANAGEMENT ==========
+
+  /**
+   * Create a new resource (employee)
+   * @param name - Name of the employee
+   * @param color - Optional color for the calendar (hex)
+   */
+  async createResource(name: string, color?: string): Promise<string> {
+    try {
+      const data: any = {
+        name,
+        type: 'person',
+      };
+
+      if (color) {
+        data.color = color;
+      }
+
+      const response = await this.client.post(`/companies/${this.companyId}/resources`, data);
+      return response.data.id;
+    } catch (error: any) {
+      console.error('Error creating resource:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Update an existing resource
+   * @param resourceId - ID of the resource to update
+   * @param data - Data to update (name, color, etc.)
+   */
+  async updateResource(resourceId: string, data: { name?: string; color?: string }): Promise<void> {
+    try {
+      await this.client.patch(`/companies/${this.companyId}/resources/${resourceId}`, data);
+    } catch (error: any) {
+      console.error(`Error updating resource ${resourceId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a resource
+   * @param resourceId - ID of the resource to delete
+   */
+  async deleteResource(resourceId: string): Promise<void> {
+    try {
+      await this.client.delete(`/companies/${this.companyId}/resources/${resourceId}`);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        // Already deleted, that's fine
+        return;
+      }
+      console.error(`Error deleting resource ${resourceId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a single resource by ID
+   */
+  async getResource(resourceId: string): Promise<any> {
+    try {
+      const response = await this.client.get(`/companies/${this.companyId}/resources/${resourceId}`);
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      console.error(`Error fetching resource ${resourceId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all resource links for a service
+   * Returns array of resource IDs linked to this service
+   */
+  async getServiceResourceLinks(serviceId: string): Promise<string[]> {
+    try {
+      const response = await this.client.get(`/companies/${this.companyId}/services/${serviceId}/links`);
+      const links = response.data || [];
+      return links.map((link: any) => link.resourceID);
+    } catch (error: any) {
+      console.warn(`Warning: Could not get resource links for service ${serviceId}: ${error.response?.data?.message || error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Unlink a resource from a service
+   */
+  async unlinkResourceFromService(serviceId: string, resourceId: string): Promise<void> {
+    try {
+      // First get existing links for this service
+      const response = await this.client.get(`/companies/${this.companyId}/services/${serviceId}/links`);
+      const links = response.data || [];
+
+      // Find the link to delete
+      const linkToDelete = links.find((link: any) => link.resourceID === resourceId);
+
+      if (linkToDelete) {
+        await this.client.delete(`/companies/${this.companyId}/services/${serviceId}/links/${linkToDelete.id}`);
+      }
+    } catch (error: any) {
+      console.warn(`Warning: Could not unlink resource ${resourceId} from service ${serviceId}: ${error.response?.data?.message || error.message}`);
+    }
+  }
 }

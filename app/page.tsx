@@ -20,6 +20,18 @@ interface Service {
   final_duration_min?: number
   service_type?: string
   service_type_id?: string
+  description_short?: string
+  description_long?: string
+  image_url?: string
+}
+
+interface EditingService {
+  slug: string
+  name: string
+  price: number
+  duration: number
+  imageUrl: string
+  linkedResources: string[]
 }
 
 interface GroupedService {
@@ -73,6 +85,8 @@ export default function Dashboard() {
   const [editingType, setEditingType] = useState<{ serviceName: string; webflowId: string; currentTypeId: string } | null>(null)
   const [updatingType, setUpdatingType] = useState(false)
   const [resources, setResources] = useState<any[]>([])
+  const [editingService, setEditingService] = useState<EditingService | null>(null)
+  const [savingService, setSavingService] = useState(false)
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -207,11 +221,11 @@ export default function Dashboard() {
 
   async function handleUpdateServiceType(newTypeId: string) {
     if (!editingType) return
-    
+
     setUpdatingType(true)
     try {
       const selectedType = serviceTypes.find(t => t.id === newTypeId)
-      
+
       const res = await fetch('/api/services/type', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -225,13 +239,68 @@ export default function Dashboard() {
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      
+
       setEditingType(null)
       await loadServices()
     } catch (err: any) {
       setError(err.message)
     } finally {
       setUpdatingType(false)
+    }
+  }
+
+  async function handleEditService(service: GroupedService) {
+    // Pre-fill with current values while loading resources
+    setEditingService({
+      slug: service.slug,
+      name: service.name,
+      price: service.price,
+      duration: service.duration,
+      imageUrl: service.parent.image_url || '',
+      linkedResources: [],
+    })
+
+    // Fetch linked resources from API
+    try {
+      const res = await fetch(`/api/services/${encodeURIComponent(service.slug)}`)
+      const data = await res.json()
+      if (data.service?.linkedResourceIds) {
+        setEditingService(prev => prev ? {
+          ...prev,
+          linkedResources: data.service.linkedResourceIds
+        } : null)
+      }
+    } catch (err) {
+      console.error('Error fetching linked resources:', err)
+    }
+  }
+
+  async function handleSaveService(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingService) return
+
+    setSavingService(true)
+    try {
+      const res = await fetch(`/api/services/${encodeURIComponent(editingService.slug)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editingService.name,
+          price: editingService.price,
+          duration: editingService.duration,
+          imageUrl: editingService.imageUrl,
+          resources: editingService.linkedResources,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+
+      setEditingService(null)
+      await loadServices()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSavingService(false)
     }
   }
 
@@ -261,6 +330,13 @@ export default function Dashboard() {
               >
                 <span>📂</span>
                 Types
+              </Link>
+              <Link
+                href="/employees"
+                className="px-4 py-3 bg-stone-800 hover:bg-stone-700 text-stone-100 font-medium rounded-xl transition-all duration-300 border border-stone-700 hover:border-stone-600 flex items-center gap-2"
+              >
+                <span>👥</span>
+                Employés
               </Link>
               <button
                 onClick={handleSync}
@@ -447,8 +523,8 @@ export default function Dashboard() {
                       onClick={() => handleToggleVisibility(service.name, service.visible)}
                       disabled={togglingVisibility === service.name}
                       className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${
-                        service.visible 
-                          ? 'bg-emerald-600' 
+                        service.visible
+                          ? 'bg-emerald-600'
                           : 'bg-stone-700'
                       } ${togglingVisibility === service.name ? 'opacity-50' : ''}`}
                       title={service.visible ? 'Visible sur le site' : 'Masqué du site'}
@@ -462,7 +538,15 @@ export default function Dashboard() {
                     <span className={`text-xs font-medium ${service.visible ? 'text-emerald-400' : 'text-stone-500'}`}>
                       {togglingVisibility === service.name ? '...' : (service.visible ? 'Visible' : 'Masqué')}
                     </span>
-                    
+
+                    {/* Edit Button */}
+                    <button
+                      onClick={() => handleEditService(service)}
+                      className="px-4 py-2 bg-amber-900/50 hover:bg-amber-800/70 text-amber-200 font-medium rounded-lg transition-all duration-300 border border-amber-800/50 hover:border-amber-700 text-sm"
+                    >
+                      ✏️ Modifier
+                    </button>
+
                     {/* Delete Button */}
                     <button
                       onClick={() => handleDeleteService(service.name)}
@@ -682,7 +766,7 @@ export default function Dashboard() {
           <div className="bg-stone-900/95 backdrop-blur-sm border border-stone-800 rounded-2xl shadow-xl p-8 w-full max-w-md mx-4">
             <h2 className="text-2xl font-bold text-amber-100 mb-2">Modifier le type</h2>
             <p className="text-stone-400 mb-6">Service : {editingType.serviceName}</p>
-            
+
             <div className="space-y-3">
               {/* Option to remove type */}
               <button
@@ -696,7 +780,7 @@ export default function Dashboard() {
               >
                 <span className="text-stone-500">Aucun type</span>
               </button>
-              
+
               {/* Service types */}
               {serviceTypes.map(type => (
                 <button
@@ -726,6 +810,143 @@ export default function Dashboard() {
                 {updatingType ? 'Mise à jour...' : 'Fermer'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Service Modal */}
+      {editingService && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in p-4 overflow-y-auto">
+          <div className="bg-stone-900/95 backdrop-blur-sm border border-stone-800 rounded-2xl shadow-xl p-8 w-full max-w-2xl mx-auto my-8">
+            <h2 className="text-2xl font-bold text-amber-100 mb-2">Modifier le service</h2>
+            <p className="text-stone-400 mb-6">Les modifications seront appliquées sur la base de données, Bookla et Webflow</p>
+
+            <form onSubmit={handleSaveService} className="space-y-6">
+              {/* Nom */}
+              <div>
+                <label className="block text-sm font-medium text-stone-300 mb-2">Nom du service</label>
+                <input
+                  type="text"
+                  value={editingService.name}
+                  onChange={e => setEditingService({ ...editingService, name: e.target.value })}
+                  className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                  required
+                />
+              </div>
+
+              {/* Prix et Durée */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-stone-300 mb-2">Prix (€)</label>
+                  <input
+                    type="number"
+                    value={editingService.price}
+                    onChange={e => setEditingService({ ...editingService, price: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                    min="0"
+                    required
+                  />
+                  <p className="text-xs text-stone-500 mt-1">Les options seront recalculées automatiquement</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-300 mb-2">Durée (min)</label>
+                  <input
+                    type="number"
+                    value={editingService.duration}
+                    onChange={e => setEditingService({ ...editingService, duration: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                    min="15"
+                    step="15"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Employés / Ressources */}
+              <div>
+                <label className="block text-sm font-medium text-stone-300 mb-2">Employés / Ressources</label>
+                <div className="bg-stone-800/50 border border-stone-700 rounded-xl p-3 max-h-48 overflow-y-auto custom-scrollbar">
+                  {resources.length === 0 ? (
+                    <p className="text-sm text-stone-500 italic">Chargement des ressources...</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {resources.map(resource => (
+                        <label key={resource.id} className="flex items-center gap-3 cursor-pointer hover:bg-stone-700/50 p-2 rounded-lg transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={editingService.linkedResources.includes(resource.id)}
+                            onChange={e => {
+                              const checked = e.target.checked
+                              setEditingService(prev => prev ? {
+                                ...prev,
+                                linkedResources: checked
+                                  ? [...prev.linkedResources, resource.id]
+                                  : prev.linkedResources.filter(id => id !== resource.id)
+                              } : null)
+                            }}
+                            className="w-5 h-5 rounded border-stone-600 bg-stone-700 text-amber-500 focus:ring-amber-500/50"
+                          />
+                          <span className="text-stone-300 text-sm font-medium">{resource.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-stone-500 mt-1">
+                  {editingService.linkedResources.length === 0
+                    ? "⚠️ Aucune ressource sélectionnée (le service ne sera pas réservable)"
+                    : `${editingService.linkedResources.length} ressource(s) sélectionnée(s)`}
+                </p>
+              </div>
+
+              {/* URL Image */}
+              <div>
+                <label className="block text-sm font-medium text-stone-300 mb-2">URL de l'image</label>
+                <input
+                  type="url"
+                  value={editingService.imageUrl}
+                  onChange={e => setEditingService({ ...editingService, imageUrl: e.target.value })}
+                  placeholder="https://drive.google.com/... ou autre URL"
+                  className="w-full px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all duration-300"
+                />
+                <p className="text-xs text-stone-500 mt-1">Collez l'URL d'une image (Google Drive, Dropbox, etc.)</p>
+                {editingService.imageUrl && (
+                  <div className="mt-3 p-2 bg-stone-800 rounded-lg">
+                    <img
+                      src={editingService.imageUrl}
+                      alt="Aperçu"
+                      className="w-32 h-32 object-cover rounded-lg"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none'
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Boutons */}
+              <div className="flex gap-3 pt-6 border-t border-stone-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingService(null)}
+                  disabled={savingService}
+                  className="px-6 py-3 bg-stone-800 hover:bg-stone-700 text-stone-100 font-medium rounded-xl transition-all duration-300 border border-stone-700 hover:border-stone-600 flex-1"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingService}
+                  className="px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingService ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="animate-spin">🔄</span> Enregistrement...
+                    </span>
+                  ) : '💾 Enregistrer'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import axios from 'axios'
 import { emailService } from '../../../src/utils/email'
-import { GoogleSheetsService } from '../../../src/lib/google-sheets'
+import { DatabaseService } from '../../../src/lib/database'
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -217,28 +217,21 @@ export async function POST(request: NextRequest) {
       console.warn(`💡 Checkout URL (manual): ${checkoutUrl}`)
     }
 
-    // Store in Google Sheet for tracking
+    // Store in Database for tracking
     try {
-      if (process.env.GOOGLE_SHEET_ID && process.env.GOOGLE_CREDS) {
-        const sheets = new GoogleSheetsService(
-          process.env.GOOGLE_SHEET_ID,
-          process.env.GOOGLE_CREDS
-        )
-        
-        await sheets.addBooking({
-          bookingId: booking.id,
-          clientEmail: clientEmail || '',
-          amount: totalAmount,
-          status: 'pending',
-          createdAt: new Date().toISOString(),
-          checkoutUrl: checkoutUrl
-        })
-        console.log(`📝 Booking saved to Sheet`)
-      } else {
-        console.warn('⚠️ Google Sheets credentials missing, skipping storage')
-      }
-    } catch (sheetError: any) {
-       console.error('❌ Failed to save booking to Sheet:', sheetError.message)
+      const db = new DatabaseService()
+
+      await db.addBooking({
+        bookingId: booking.id,
+        clientEmail: clientEmail || '',
+        amount: totalAmount,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        checkoutUrl: checkoutUrl
+      })
+      console.log(`📝 Booking saved to database`)
+    } catch (dbError: any) {
+       console.error('❌ Failed to save booking to database:', dbError.message)
        // Don't fail the request
     }
 

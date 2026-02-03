@@ -19,7 +19,7 @@ export class GoogleSheetsService {
     try {
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.sheetId,
-        range: 'A2:S', // Default sheet, columns A to S
+        range: 'A2:V', // Default sheet, columns A to V
       });
 
       const rows = response.data.values;
@@ -48,6 +48,9 @@ export class GoogleSheetsService {
           notes_internal: row[16],
           service_type: row[17],          // Col R - Service Type Name
           service_type_id: row[18],       // Col S - Service Type ID
+          description_short: row[19],     // Col T - Description courte
+          description_long: row[20],      // Col U - Description longue
+          image_url: row[21],             // Col V - URL image
           rowIndex: index + 2,
         };
       });
@@ -65,8 +68,17 @@ export class GoogleSheetsService {
       if (data.webflow_id !== undefined) {
         updates.push({ range: `A${rowIndex}`, values: [[data.webflow_id]] });
       }
+      if (data.service_name !== undefined) {
+        updates.push({ range: `C${rowIndex}`, values: [[data.service_name]] });
+      }
       if (data.bookla_service_id !== undefined) {
         updates.push({ range: `D${rowIndex}`, values: [[data.bookla_service_id]] });
+      }
+      if (data.duration_minutes !== undefined) {
+        updates.push({ range: `E${rowIndex}`, values: [[data.duration_minutes]] });
+      }
+      if (data.price_eur !== undefined) {
+        updates.push({ range: `F${rowIndex}`, values: [[data.price_eur]] });
       }
       if (data.bookla_updated_at !== undefined) {
         updates.push({ range: `P${rowIndex}`, values: [[data.bookla_updated_at]] });
@@ -76,6 +88,15 @@ export class GoogleSheetsService {
       }
       if (data.service_type_id !== undefined) {
         updates.push({ range: `S${rowIndex}`, values: [[data.service_type_id]] });
+      }
+      if (data.description_short !== undefined) {
+        updates.push({ range: `T${rowIndex}`, values: [[data.description_short]] });
+      }
+      if (data.description_long !== undefined) {
+        updates.push({ range: `U${rowIndex}`, values: [[data.description_long]] });
+      }
+      if (data.image_url !== undefined) {
+        updates.push({ range: `V${rowIndex}`, values: [[data.image_url]] });
       }
 
       if (updates.length > 0) {

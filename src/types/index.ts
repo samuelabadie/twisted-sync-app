@@ -19,6 +19,9 @@ export interface Service {
   notes_internal?: string;
   service_type?: string;        // Nom du type de service (ex: "Cornrows", "Fulani")
   service_type_id?: string;     // ID Webflow du type de service
+  description_short?: string;   // Col T - Description courte
+  description_long?: string;    // Col U - Description longue
+  image_url?: string;           // Col V - URL image
 
   // Calculated / Internal
   final_price?: number;

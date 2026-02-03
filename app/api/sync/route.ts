@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { GoogleSheetsService } from '../../../src/lib/google-sheets'
+import { DatabaseService } from '../../../src/lib/database'
 import { BooklaClient } from '../../../src/lib/bookla'
 import { WebflowClient } from '../../../src/lib/webflow'
 
 export async function POST(request: NextRequest) {
   try {
-    const sheets = new GoogleSheetsService(
-      process.env.GOOGLE_SHEET_ID!,
-      process.env.GOOGLE_CREDS!
-    )
+    const db = new DatabaseService()
     const bookla = new BooklaClient(
       process.env.BOOKLA_API_KEY!,
       process.env.BOOKLA_COMPANY_ID!
@@ -19,8 +16,8 @@ export async function POST(request: NextRequest) {
     )
     const collectionId = process.env.WEBFLOW_COLLECTION_ID!
 
-    // 1. Read Sheet (source of truth)
-    const sheetServices = await sheets.getServices()
+    // 1. Read Database (source of truth)
+    const dbServices = await db.getServices()
 
     // 2. Pre-fetch Webflow items (indexed by bookla-id)
     await webflow.getAllItems(collectionId)
@@ -33,13 +30,13 @@ export async function POST(request: NextRequest) {
       checked: 0,
       bookla_created: 0,
       webflow_created: 0,
-      sheet_updated: 0,
+      db_updated: 0,
       skipped: 0,
       errors: [] as string[],
     }
 
     // 4. Process each service
-    for (const service of sheetServices) {
+    for (const service of dbServices) {
       report.checked++
       const serviceName = service.service_name
 
@@ -59,9 +56,9 @@ export async function POST(request: NextRequest) {
             duration: service.final_duration_min || service.duration_minutes,
             price: service.final_price || service.price_eur,
           })
-          await sheets.updateRow(service.rowIndex, { bookla_service_id: booklaId })
+          await db.updateRow(service.rowIndex, { bookla_service_id: booklaId })
           report.bookla_created++
-          report.sheet_updated++
+          report.db_updated++
         }
 
         // === WEBFLOW SYNC ===
@@ -77,8 +74,8 @@ export async function POST(request: NextRequest) {
           webflowItem = await webflow.findItemByBooklaId(collectionId, booklaId)
           if (webflowItem) {
             webflowId = webflowItem.id
-            await sheets.updateRow(service.rowIndex, { webflow_id: webflowId })
-            report.sheet_updated++
+            await db.updateRow(service.rowIndex, { webflow_id: webflowId })
+            report.db_updated++
           }
         }
 
@@ -102,17 +99,17 @@ export async function POST(request: NextRequest) {
 
           try {
             const newWebflowId = await webflow.createItem(collectionId, webflowPayload)
-            await sheets.updateRow(service.rowIndex, { webflow_id: newWebflowId })
+            await db.updateRow(service.rowIndex, { webflow_id: newWebflowId })
             report.webflow_created++
-            report.sheet_updated++
+            report.db_updated++
           } catch (err: any) {
             if (err.response?.status === 400) {
               // Slug conflict, try with suffix
               webflowPayload.slug = `svc-${slug}-${booklaId.slice(-6)}`
               const newWebflowId = await webflow.createItem(collectionId, webflowPayload)
-              await sheets.updateRow(service.rowIndex, { webflow_id: newWebflowId })
+              await db.updateRow(service.rowIndex, { webflow_id: newWebflowId })
               report.webflow_created++
-              report.sheet_updated++
+              report.db_updated++
             } else {
               throw err
             }
@@ -130,7 +127,7 @@ export async function POST(request: NextRequest) {
         checked: report.checked,
         bookla_created: report.bookla_created,
         webflow_created: report.webflow_created,
-        sheet_updated: report.sheet_updated,
+        db_updated: report.db_updated,
         skipped: report.skipped,
         errors_count: report.errors.length,
       },
@@ -142,4 +139,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
-
