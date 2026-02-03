@@ -128,49 +128,44 @@ export class BooklaClient {
 
   async updateService(serviceId: string, payload: any): Promise<void> {
     try {
-      const data: any = {};
+      // 1. Update service basic info (name, color) via PATCH /services/{id}
+      const serviceData: any = {};
 
-      // Name
       if (payload.title || payload.name) {
-        data.name = payload.title || payload.name;
+        serviceData.name = payload.title || payload.name;
       }
 
-      // Color
       if (payload.color) {
-        data.color = payload.color;
+        serviceData.color = payload.color;
       }
 
-      // Settings (duration, buffers) - Bookla requires full settings object
+      if (Object.keys(serviceData).length > 0) {
+        console.log(`[Bookla] Updating service ${serviceId} basic info:`, JSON.stringify(serviceData));
+        const response = await this.client.patch(`/companies/${this.companyId}/services/${serviceId}`, serviceData);
+        console.log(`[Bookla] Service update response:`, JSON.stringify(response.data));
+      }
+
+      // 2. Update settings (duration, buffers) via PATCH /services/{id}/settings
       if (payload.duration !== undefined || payload.bufferBefore !== undefined || payload.bufferAfter !== undefined) {
-        // First, get current service settings
-        const currentService = await this.getService(serviceId);
-        const currentSettings = currentService.settings || {};
+        const settingsData: any = {};
 
-        // Merge with new values
-        data.settings = {
-          currency: currentSettings.currency || 'EUR',
-          bookingPolicy: currentSettings.bookingPolicy || 'instant',
-          duration: payload.duration !== undefined
-            ? this.minutesToISO8601(payload.duration)
-            : currentSettings.duration,
-          timeInterval: currentSettings.timeInterval || 'PT30M',
-          bufferBefore: payload.bufferBefore !== undefined
-            ? this.minutesToISO8601(payload.bufferBefore)
-            : currentSettings.bufferBefore,
-          bufferAfter: payload.bufferAfter !== undefined
-            ? this.minutesToISO8601(payload.bufferAfter)
-            : currentSettings.bufferAfter,
-        };
+        if (payload.duration !== undefined) {
+          settingsData.duration = this.minutesToISO8601(payload.duration);
+        }
+        if (payload.bufferBefore !== undefined) {
+          settingsData.bufferBefore = this.minutesToISO8601(payload.bufferBefore);
+        }
+        if (payload.bufferAfter !== undefined) {
+          settingsData.bufferAfter = this.minutesToISO8601(payload.bufferAfter);
+        }
+
+        console.log(`[Bookla] Updating service ${serviceId} settings:`, JSON.stringify(settingsData));
+        const settingsResponse = await this.client.patch(
+          `/companies/${this.companyId}/services/${serviceId}/settings`,
+          settingsData
+        );
+        console.log(`[Bookla] Settings update response:`, JSON.stringify(settingsResponse.data));
       }
-
-      // Log pour debug
-      console.log(`[Bookla] Updating service ${serviceId} with:`, JSON.stringify(data));
-
-      // Use PATCH to update
-      const response = await this.client.patch(`/companies/${this.companyId}/services/${serviceId}`, data);
-
-      // Log réponse
-      console.log(`[Bookla] Update response for ${serviceId}:`, JSON.stringify(response.data));
     } catch (error: any) {
       if (error.response && error.response.status === 400) {
         console.error(`Bookla 400 error for service ${serviceId}. Payload:`, JSON.stringify(payload), 'Response:', JSON.stringify(error.response.data));
