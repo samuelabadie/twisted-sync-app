@@ -345,6 +345,39 @@ export class DatabaseService {
     }
   }
 
+  async getAllBookings(): Promise<any[]> {
+    try {
+      const rows = await this.sql`
+        SELECT
+          id,
+          booking_id,
+          client_email,
+          amount,
+          status,
+          checkout_url,
+          created_at,
+          updated_at
+        FROM bookings
+        ORDER BY created_at DESC
+        LIMIT 100
+      `;
+
+      return rows.map((row: any) => ({
+        id: row.id,
+        booking_id: row.booking_id,
+        client_email: row.client_email,
+        amount: parseFloat(row.amount),
+        status: row.status,
+        checkout_url: row.checkout_url,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      }));
+    } catch (error) {
+      console.error('Error getting all bookings:', error);
+      return [];
+    }
+  }
+
   async deleteBooking(bookingId: string): Promise<void> {
     try {
       await this.sql`DELETE FROM bookings WHERE booking_id = ${bookingId}`;

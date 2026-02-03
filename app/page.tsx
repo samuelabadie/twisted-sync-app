@@ -64,7 +64,6 @@ export default function Dashboard() {
   const [services, setServices] = useState<GroupedService[]>([])
   const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [newService, setNewService] = useState({ 
@@ -81,7 +80,6 @@ export default function Dashboard() {
   const [addingService, setAddingService] = useState(false)
   const [deletingService, setDeletingService] = useState<string | null>(null)
   const [togglingVisibility, setTogglingVisibility] = useState<string | null>(null)
-  const [syncResult, setSyncResult] = useState<any>(null)
   const [editingType, setEditingType] = useState<{ serviceName: string; webflowId: string; currentTypeId: string } | null>(null)
   const [updatingType, setUpdatingType] = useState(false)
   const [resources, setResources] = useState<any[]>([])
@@ -132,21 +130,6 @@ export default function Dashboard() {
       setError(err.message)
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function handleSync() {
-    setSyncing(true)
-    setSyncResult(null)
-    try {
-      const res = await fetch('/api/sync', { method: 'POST' })
-      const data = await res.json()
-      setSyncResult(data)
-      await loadServices()
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setSyncing(false)
     }
   }
 
@@ -306,7 +289,6 @@ export default function Dashboard() {
 
   const totalServices = services.length
   const totalWithOptions = services.reduce((acc, s) => acc + 1 + s.options.length, 0)
-  const syncedCount = services.filter(s => s.isFullySynced).length
 
   return (
     <div className="min-h-screen">
@@ -338,14 +320,13 @@ export default function Dashboard() {
                 <span>👥</span>
                 Employés
               </Link>
-              <button
-                onClick={handleSync}
-                disabled={syncing}
+              <Link
+                href="/bookings"
                 className="px-4 py-3 bg-stone-800 hover:bg-stone-700 text-stone-100 font-medium rounded-xl transition-all duration-300 border border-stone-700 hover:border-stone-600 flex items-center gap-2"
               >
-                <span className={syncing ? 'animate-spin' : ''}>🔄</span>
-                {syncing ? 'Sync...' : 'Sync'}
-              </button>
+                <span>📋</span>
+                Réservations
+              </Link>
               <button
                 onClick={() => setShowAddForm(true)}
                 className="px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-amber-500/25 hover:-translate-y-0.5 flex items-center gap-2"
@@ -390,38 +371,7 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          <div className="bg-stone-900/80 backdrop-blur-sm border border-stone-800 rounded-2xl shadow-xl p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-blue-900/30 flex items-center justify-center text-2xl">
-                ✅
-              </div>
-              <div>
-                <p className="text-3xl font-bold text-blue-100">{syncedCount}/{totalServices}</p>
-                <p className="text-sm text-stone-400">Synchronisés</p>
-              </div>
-            </div>
-          </div>
         </div>
-
-        {/* Sync Result */}
-        {syncResult && (
-          <div className="bg-stone-900/80 backdrop-blur-sm border border-stone-800 rounded-2xl shadow-xl p-4 mb-6 animate-fade-in">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">{syncResult.error ? '❌' : '✅'}</span>
-              <div>
-                <p className="font-medium">{syncResult.message || syncResult.error}</p>
-                {syncResult.summary && (
-                  <p className="text-sm text-stone-400">
-                    Vérifié: {syncResult.summary.checked} | 
-                    Créé Bookla: {syncResult.summary.bookla_created} | 
-                    Créé Webflow: {syncResult.summary.webflow_created}
-                  </p>
-                )}
-              </div>
-              <button onClick={() => setSyncResult(null)} className="ml-auto text-stone-500 hover:text-stone-300">✕</button>
-            </div>
-          </div>
-        )}
 
         {/* Error */}
         {error && (
