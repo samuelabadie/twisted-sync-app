@@ -129,21 +129,21 @@ export class BooklaClient {
   async updateService(serviceId: string, payload: any): Promise<void> {
     try {
       const data: any = {};
-      
+
       // Name
       if (payload.title || payload.name) {
         data.name = payload.title || payload.name;
       }
-      
+
       // Color
       if (payload.color) {
         data.color = payload.color;
       }
-      
+
       // Settings (duration, buffers)
       if (payload.duration !== undefined || payload.bufferBefore !== undefined || payload.bufferAfter !== undefined) {
         data.settings = {};
-        
+
         if (payload.duration !== undefined) {
           data.settings.duration = this.minutesToISO8601(payload.duration);
         }
@@ -155,8 +155,14 @@ export class BooklaClient {
         }
       }
 
+      // Log pour debug
+      console.log(`[Bookla] Updating service ${serviceId} with:`, JSON.stringify(data));
+
       // Use PATCH to update
-      await this.client.patch(`/companies/${this.companyId}/services/${serviceId}`, data);
+      const response = await this.client.patch(`/companies/${this.companyId}/services/${serviceId}`, data);
+
+      // Log réponse
+      console.log(`[Bookla] Update response for ${serviceId}:`, JSON.stringify(response.data));
     } catch (error: any) {
       if (error.response && error.response.status === 400) {
         console.error(`Bookla 400 error for service ${serviceId}. Payload:`, JSON.stringify(payload), 'Response:', JSON.stringify(error.response.data));
