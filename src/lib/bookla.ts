@@ -140,19 +140,27 @@ export class BooklaClient {
         data.color = payload.color;
       }
 
-      // Settings (duration, buffers)
+      // Settings (duration, buffers) - Bookla requires full settings object
       if (payload.duration !== undefined || payload.bufferBefore !== undefined || payload.bufferAfter !== undefined) {
-        data.settings = {};
+        // First, get current service settings
+        const currentService = await this.getService(serviceId);
+        const currentSettings = currentService.settings || {};
 
-        if (payload.duration !== undefined) {
-          data.settings.duration = this.minutesToISO8601(payload.duration);
-        }
-        if (payload.bufferBefore !== undefined) {
-          data.settings.bufferBefore = this.minutesToISO8601(payload.bufferBefore);
-        }
-        if (payload.bufferAfter !== undefined) {
-          data.settings.bufferAfter = this.minutesToISO8601(payload.bufferAfter);
-        }
+        // Merge with new values
+        data.settings = {
+          currency: currentSettings.currency || 'EUR',
+          bookingPolicy: currentSettings.bookingPolicy || 'instant',
+          duration: payload.duration !== undefined
+            ? this.minutesToISO8601(payload.duration)
+            : currentSettings.duration,
+          timeInterval: currentSettings.timeInterval || 'PT30M',
+          bufferBefore: payload.bufferBefore !== undefined
+            ? this.minutesToISO8601(payload.bufferBefore)
+            : currentSettings.bufferBefore,
+          bufferAfter: payload.bufferAfter !== undefined
+            ? this.minutesToISO8601(payload.bufferAfter)
+            : currentSettings.bufferAfter,
+        };
       }
 
       // Log pour debug
@@ -401,8 +409,16 @@ export class BooklaClient {
   async getServiceResourceLinks(serviceId: string): Promise<string[]> {
     try {
       const response = await this.client.get(`/companies/${this.companyId}/services/${serviceId}/links`);
-      const links = response.data || [];
-      return links.map((link: any) => link.resourceID);
+      const links = response.data;
+      // Handle both array and object responses
+      if (Array.isArray(links)) {
+        return links.map((link: any) => link.resourceID);
+      }
+      // If response is an object with a data property
+      if (links && Array.isArray(links.data)) {
+        return links.data.map((link: any) => link.resourceID);
+      }
+      return [];
     } catch (error: any) {
       console.warn(`Warning: Could not get resource links for service ${serviceId}: ${error.response?.data?.message || error.message}`);
       return [];
