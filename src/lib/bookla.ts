@@ -192,6 +192,19 @@ export class BooklaClient {
     }
   }
 
+  /**
+   * Get booking details by ID
+   */
+  async getBooking(bookingId: string): Promise<any> {
+    try {
+      const response = await this.client.get(`/companies/${this.companyId}/bookings/${bookingId}`);
+      return response.data;
+    } catch (error: any) {
+      console.error(`Error fetching booking ${bookingId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
   async getServices(): Promise<any[]> {
     try {
       const response = await this.client.get(`/companies/${this.companyId}/services`);

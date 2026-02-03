@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { BooklaClient } from '../../../src/lib/bookla'
 import { DatabaseService } from '../../../src/lib/database'
+import { emailService } from '../../../src/utils/email'
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -52,12 +53,13 @@ export async function POST(request: NextRequest) {
       if (bookingId) {
         console.log(`Processing payment confirmation for booking ${bookingId}...`)
 
+        const bookla = new BooklaClient(
+          process.env.BOOKLA_API_KEY!,
+          process.env.BOOKLA_COMPANY_ID!
+        )
+
         // 1. Confirm in Bookla (Best effort)
         try {
-          const bookla = new BooklaClient(
-            process.env.BOOKLA_API_KEY!,
-            process.env.BOOKLA_COMPANY_ID!
-          )
           await bookla.confirmBooking(bookingId)
           console.log(`✅ Booking ${bookingId} confirmed in Bookla.`)
         } catch (booklaError: any) {
@@ -72,6 +74,47 @@ export async function POST(request: NextRequest) {
           console.log(`✅ Booking ${bookingId} marked as PAID in database.`)
         } catch (dbError: any) {
            console.error(`❌ Failed to update booking status in database: ${dbError.message}`)
+        }
+
+        // 3. Send confirmation email with booking details
+        try {
+          const booking = await bookla.getBooking(bookingId)
+          console.log('Booking details:', JSON.stringify(booking))
+
+          // Extract booking info
+          const clientEmail = booking.client?.email || session.customer_details?.email
+          const serviceName = booking.service?.name || 'Prestation'
+          const resourceName = booking.resource?.name
+          const amountPaid = (session.amount_total || 0) / 100 // Convert cents to EUR
+
+          // Format date/time
+          let dateTime = 'Date à confirmer'
+          if (booking.startTime) {
+            const date = new Date(booking.startTime)
+            dateTime = date.toLocaleDateString('fr-FR', {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })
+          }
+
+          if (clientEmail) {
+            await emailService.sendPaymentConfirmation(clientEmail, {
+              serviceName,
+              dateTime,
+              resourceName,
+              amountPaid
+            })
+            console.log(`✅ Confirmation email sent to ${clientEmail}`)
+          } else {
+            console.warn('⚠️ No client email found, skipping confirmation email')
+          }
+        } catch (emailError: any) {
+          console.error(`❌ Failed to send confirmation email: ${emailError.message}`)
+          // Don't fail the webhook if email fails
         }
       } else {
         console.warn('⚠️ Checkout Session completed but no bookingId in metadata!')
