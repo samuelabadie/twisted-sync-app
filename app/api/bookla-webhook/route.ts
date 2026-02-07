@@ -11,7 +11,7 @@ function getStripe() {
 }
 
 // Fetch booking details from Bookla API to get client info
-async function getBookingDetailsFromBookla(bookingId: string): Promise<{ email: string; firstName: string } | null> {
+async function getBookingDetailsFromBookla(bookingId: string): Promise<{ email: string; firstName: string; lastName: string; phone: string } | null> {
   try {
     // First, try to get the booking with client details
     const response = await axios.get(
@@ -31,7 +31,9 @@ async function getBookingDetailsFromBookla(bookingId: string): Promise<{ email: 
     if (booking.client?.email) {
       return {
         email: booking.client.email,
-        firstName: booking.client.firstName || 'Client',
+        firstName: booking.client.firstName || '',
+        lastName: booking.client.lastName || '',
+        phone: booking.client.phone || booking.client.phoneNumber || '',
       }
     }
     
@@ -53,7 +55,9 @@ async function getBookingDetailsFromBookla(bookingId: string): Promise<{ email: 
         if (Array.isArray(clients) && clients.length > 0) {
           return {
             email: clients[0].email || null,
-            firstName: clients[0].firstName || 'Client',
+            firstName: clients[0].firstName || '',
+            lastName: clients[0].lastName || '',
+            phone: clients[0].phone || clients[0].phoneNumber || '',
           }
         }
       } catch (clientError: any) {
@@ -92,10 +96,12 @@ export async function POST(request: NextRequest) {
 
     console.log('Booking ID:', booking.id)
 
-    // Try to find client email in various locations
-    let clientEmail = 
-      booking.client?.email || 
-      booking.clientEmail || 
+    // Extract client info from metaData (custom form fields)
+    const metaData = booking.metaData || {}
+    let clientEmail =
+      metaData.email_1 ||
+      booking.client?.email ||
+      booking.clientEmail ||
       booking.email ||
       booking.guest?.email ||
       booking.guestEmail ||
@@ -103,26 +109,43 @@ export async function POST(request: NextRequest) {
       event.email ||
       null
 
-    let clientName = 
+    let clientPhone =
+      metaData['numéro_de_téléphone_0'] ||
+      booking.client?.phone ||
+      booking.client?.phoneNumber ||
+      null
+
+    let clientFirstName =
       booking.client?.firstName ||
       booking.clientName ||
       booking.guest?.firstName ||
       booking.firstName ||
-      'Client'
+      ''
 
-    // If no email found, fetch booking details from Bookla API
-    if (!clientEmail && booking.id) {
+    let clientLastName =
+      booking.client?.lastName ||
+      booking.guest?.lastName ||
+      booking.lastName ||
+      ''
+
+    // If missing info, fetch from Bookla API using clientID
+    if ((!clientEmail || !clientFirstName) && (booking.clientID || booking.id)) {
       console.log(`📡 Fetching booking details from Bookla for bookingId: ${booking.id}`)
       const bookingDetails = await getBookingDetailsFromBookla(booking.id)
-      if (bookingDetails?.email) {
-        clientEmail = bookingDetails.email
-        clientName = bookingDetails.firstName || clientName
-        console.log(`✅ Got client from Bookla: ${clientEmail} (${clientName})`)
+      if (bookingDetails) {
+        clientEmail = clientEmail || bookingDetails.email
+        clientFirstName = clientFirstName || bookingDetails.firstName
+        clientLastName = clientLastName || bookingDetails.lastName
+        clientPhone = clientPhone || bookingDetails.phone
+        console.log(`✅ Got client from Bookla: ${clientEmail} (${clientFirstName} ${clientLastName})`)
       }
     }
 
+    const clientFullName = [clientFirstName, clientLastName].filter(Boolean).join(' ') || null
+
     console.log('Client email found:', clientEmail)
-    console.log('Client name:', clientName)
+    console.log('Client name:', clientFullName)
+    console.log('Client phone:', clientPhone)
 
     // Get price from booking - try multiple field names
     // Bookla prices are usually in cents
@@ -224,6 +247,8 @@ export async function POST(request: NextRequest) {
       await db.addBooking({
         bookingId: booking.id,
         clientEmail: clientEmail || '',
+        clientName: clientFullName || undefined,
+        clientPhone: clientPhone || undefined,
         amount: totalAmount,
         status: 'pending',
         createdAt: new Date().toISOString(),

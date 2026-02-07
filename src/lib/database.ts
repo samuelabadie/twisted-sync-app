@@ -276,6 +276,8 @@ export class DatabaseService {
         INSERT INTO bookings (
           booking_id,
           client_email,
+          client_name,
+          client_phone,
           amount,
           status,
           checkout_url,
@@ -283,6 +285,8 @@ export class DatabaseService {
         ) VALUES (
           ${booking.bookingId},
           ${booking.clientEmail},
+          ${booking.clientName || null},
+          ${booking.clientPhone || null},
           ${booking.amount},
           ${booking.status},
           ${booking.checkoutUrl || null},
@@ -290,6 +294,8 @@ export class DatabaseService {
         )
         ON CONFLICT (booking_id) DO UPDATE SET
           status = ${booking.status},
+          client_name = COALESCE(${booking.clientName || null}, bookings.client_name),
+          client_phone = COALESCE(${booking.clientPhone || null}, bookings.client_phone),
           checkout_url = ${booking.checkoutUrl || null},
           updated_at = NOW()
       `;
@@ -307,6 +313,8 @@ export class DatabaseService {
           id,
           booking_id,
           client_email,
+          client_name,
+          client_phone,
           amount,
           status,
           checkout_url,
@@ -319,6 +327,8 @@ export class DatabaseService {
       return rows.map((row: any) => ({
         bookingId: row.booking_id,
         clientEmail: row.client_email,
+        clientName: row.client_name,
+        clientPhone: row.client_phone,
         amount: parseFloat(row.amount),
         status: row.status,
         createdAt: row.created_at,
@@ -352,6 +362,8 @@ export class DatabaseService {
           id,
           booking_id,
           client_email,
+          client_name,
+          client_phone,
           amount,
           status,
           checkout_url,
@@ -366,6 +378,8 @@ export class DatabaseService {
         id: row.id,
         booking_id: row.booking_id,
         client_email: row.client_email,
+        client_name: row.client_name,
+        client_phone: row.client_phone,
         amount: parseFloat(row.amount),
         status: row.status,
         checkout_url: row.checkout_url,

@@ -57,6 +57,8 @@ export interface Booking {
 export interface BookingRecord {
   bookingId: string;
   clientEmail: string;
+  clientName?: string;
+  clientPhone?: string;
   amount: number;
   status: string;
   createdAt: string;

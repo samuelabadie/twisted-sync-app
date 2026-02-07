@@ -7,6 +7,8 @@ interface Booking {
   id: number
   booking_id: string
   client_email: string
+  client_name: string | null
+  client_phone: string | null
   amount: number
   status: 'pending' | 'paid' | 'cancelled'
   checkout_url: string
@@ -211,10 +213,20 @@ export default function BookingsPage() {
                         {getTimeAgo(booking.created_at)}
                       </span>
                     </div>
-                    <p className="text-lg font-medium text-stone-100">
+                    {booking.client_name && (
+                      <p className="text-lg font-medium text-stone-100">
+                        {booking.client_name}
+                      </p>
+                    )}
+                    <p className={`text-stone-400 ${booking.client_name ? 'text-sm' : 'text-lg font-medium text-stone-100'}`}>
                       {booking.client_email}
                     </p>
-                    <p className="text-sm text-stone-400">
+                    {booking.client_phone && (
+                      <p className="text-sm text-stone-400">
+                        {booking.client_phone}
+                      </p>
+                    )}
+                    <p className="text-sm text-stone-500">
                       {formatDate(booking.created_at)}
                     </p>
                   </div>
