@@ -3,6 +3,8 @@ import Stripe from 'stripe'
 import axios from 'axios'
 import { emailService } from '../../../src/utils/email'
 import { DatabaseService } from '../../../src/lib/database'
+import { withRetry } from '../../../src/utils/retry'
+import { sendAlert } from '../../../src/utils/alerts'
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -17,16 +19,17 @@ async function getBookingDetailsFromBookla(bookingId: string): Promise<{ email: 
     const response = await axios.get(
       `https://eu.bookla.com/api/v1/companies/${process.env.BOOKLA_COMPANY_ID}/bookings/${bookingId}`,
       {
+        timeout: 15000,
         headers: {
           'x-api-key': process.env.BOOKLA_API_KEY!,
           'Content-Type': 'application/json',
         },
       }
     )
-    
+
     const booking = response.data
-    console.log('📦 Booking details from Bookla:', JSON.stringify(booking, null, 2))
-    
+    console.log('Booking details from Bookla:', JSON.stringify(booking, null, 2))
+
     // Check if client info is included
     if (booking.client?.email) {
       return {
@@ -36,7 +39,7 @@ async function getBookingDetailsFromBookla(bookingId: string): Promise<{ email: 
         phone: booking.client.phone || booking.client.phoneNumber || '',
       }
     }
-    
+
     // If we have a clientID, try to fetch client separately
     if (booking.clientID) {
       try {
@@ -44,13 +47,14 @@ async function getBookingDetailsFromBookla(bookingId: string): Promise<{ email: 
           `https://eu.bookla.com/api/v1/companies/${process.env.BOOKLA_COMPANY_ID}/clients/search`,
           {
             params: { clientID: booking.clientID },
+            timeout: 15000,
             headers: {
               'x-api-key': process.env.BOOKLA_API_KEY!,
               'Content-Type': 'application/json',
             },
           }
         )
-        
+
         const clients = clientResponse.data
         if (Array.isArray(clients) && clients.length > 0) {
           return {
@@ -64,7 +68,7 @@ async function getBookingDetailsFromBookla(bookingId: string): Promise<{ email: 
         console.log('Could not fetch client directly:', clientError.message)
       }
     }
-    
+
     return null
   } catch (error: any) {
     console.error('Error fetching booking from Bookla:', error.message)
@@ -88,13 +92,35 @@ export async function POST(request: NextRequest) {
 
     // Bookla webhook payload structure - try multiple locations
     const booking = event.data || event.booking || event
-    
+
     if (!booking || !booking.id) {
       console.error('Invalid booking payload - no ID found')
       return NextResponse.json({ error: 'Invalid booking payload' }, { status: 400 })
     }
 
     console.log('Booking ID:', booking.id)
+
+    // Idempotency check: if this booking already exists, skip duplicate processing
+    const db = new DatabaseService()
+    const existingBooking = await db.getBookingByBookingId(booking.id)
+
+    if (existingBooking) {
+      console.log(`Booking ${booking.id} already exists with status: ${existingBooking.status}`)
+
+      if (existingBooking.status === 'paid') {
+        return NextResponse.json({ received: true, skipped: 'already_paid' })
+      }
+
+      if (existingBooking.status === 'pending' && existingBooking.checkoutUrl) {
+        return NextResponse.json({
+          received: true,
+          skipped: 'already_pending',
+          checkoutUrl: existingBooking.checkoutUrl,
+        })
+      }
+
+      // If status is 'cancelled', allow re-creation (booking was retried)
+    }
 
     // Extract client info from metaData (custom form fields)
     const metaData = booking.metaData || {}
@@ -130,14 +156,14 @@ export async function POST(request: NextRequest) {
 
     // If missing info, fetch from Bookla API using clientID
     if ((!clientEmail || !clientFirstName) && (booking.clientID || booking.id)) {
-      console.log(`📡 Fetching booking details from Bookla for bookingId: ${booking.id}`)
+      console.log(`Fetching booking details from Bookla for bookingId: ${booking.id}`)
       const bookingDetails = await getBookingDetailsFromBookla(booking.id)
       if (bookingDetails) {
         clientEmail = clientEmail || bookingDetails.email
         clientFirstName = clientFirstName || bookingDetails.firstName
         clientLastName = clientLastName || bookingDetails.lastName
         clientPhone = clientPhone || bookingDetails.phone
-        console.log(`✅ Got client from Bookla: ${clientEmail} (${clientFirstName} ${clientLastName})`)
+        console.log(`Got client from Bookla: ${clientEmail} (${clientFirstName} ${clientLastName})`)
       }
     }
 
@@ -148,18 +174,18 @@ export async function POST(request: NextRequest) {
     console.log('Client phone:', clientPhone)
 
     // Get price from booking - try multiple field names
-    // Bookla prices are usually in cents
-    const priceInCents = 
-      booking.price || 
-      booking.totalPrice || 
-      booking.amount || 
+    // Bookla prices are in fractional units (cents)
+    const priceInCents =
+      booking.price ||
+      booking.totalPrice ||
+      booking.amount ||
       booking.total ||
       event.price ||
       0
-    
-    // Convert to euros (assuming price is in cents)
-    const totalAmount = priceInCents > 100 ? priceInCents / 100 : priceInCents
-    
+
+    // Bookla prices are always in fractional units (cents)
+    const totalAmount = priceInCents / 100
+
     console.log('Price (raw):', priceInCents, '-> Total amount (EUR):', totalAmount)
 
     if (totalAmount <= 0) {
@@ -175,48 +201,49 @@ export async function POST(request: NextRequest) {
     // Calculate 30% deposit
     const depositAmount = totalAmount * 0.30
 
-    // Create Stripe Checkout Session with 15-minute expiration
+    // Create Stripe Checkout Session
     const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://twistedbraids.fr'
     const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://twistedbraids.fr/echec-paiement'
-    
-    // Expire in 15 minutes (must be at least 30 minutes in the future for Stripe)
-    // Stripe requires expires_at to be between 30 minutes and 24 hours
-    // So we use 30 minutes as minimum, but our cleanup job will cancel after 15 min
-    const expiresAt = Math.floor(Date.now() / 1000) + (30 * 60) // 30 minutes from now
 
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price_data: {
-            currency: 'eur',
-            product_data: {
-              name: 'Acompte Réservation Twisted',
-              description: `Acompte de 30% pour votre réservation (${booking.service?.name || booking.serviceName || 'Service'})`,
+    // Stripe requires expires_at to be between 30 minutes and 24 hours
+    const expiresAt = Math.floor(Date.now() / 1000) + (30 * 60)
+
+    const session = await withRetry(
+      () => stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price_data: {
+              currency: 'eur',
+              product_data: {
+                name: 'Acompte Réservation Twisted',
+                description: `Acompte de 30% pour votre réservation (${booking.service?.name || booking.serviceName || 'Service'})`,
+              },
+              unit_amount: Math.round(depositAmount * 100), // Convert to cents
             },
-            unit_amount: Math.round(depositAmount * 100), // Convert to cents
+            quantity: 1,
           },
-          quantity: 1,
-        },
-      ],
-      mode: 'payment',
-      expires_at: expiresAt,
-      metadata: {
-        bookingId: booking.id,
-        clientEmail: booking.client?.email || booking.clientEmail || '',
-        serviceId: booking.service?.id || booking.serviceID || '',
-        totalPrice: String(totalAmount),
-        depositAmount: String(depositAmount),
-      },
-      payment_intent_data: {
+        ],
+        mode: 'payment',
+        expires_at: expiresAt,
         metadata: {
           bookingId: booking.id,
+          clientEmail: booking.client?.email || booking.clientEmail || '',
+          serviceId: booking.service?.id || booking.serviceID || '',
+          totalPrice: String(totalAmount),
+          depositAmount: String(depositAmount),
         },
-      },
-      customer_email: clientEmail || undefined,
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-    })
+        payment_intent_data: {
+          metadata: {
+            bookingId: booking.id,
+          },
+        },
+        customer_email: clientEmail || undefined,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      }),
+      { maxRetries: 2 }
+    )
 
     const checkoutUrl = session.url
 
@@ -224,44 +251,58 @@ export async function POST(request: NextRequest) {
       throw new Error('Failed to generate checkout URL')
     }
 
-    console.log(`✅ Generated payment link for booking ${booking.id}: ${checkoutUrl}`)
+    console.log(`Generated payment link for booking ${booking.id}: ${checkoutUrl}`)
 
     // Send Email with checkoutUrl
     if (clientEmail) {
       try {
-        await emailService.sendPaymentLink(clientEmail, checkoutUrl, booking.id)
-        console.log(`📧 Payment link email sent to ${clientEmail}`)
+        await withRetry(
+          () => emailService.sendPaymentLink(clientEmail, checkoutUrl, booking.id),
+          { maxRetries: 2 }
+        )
+        console.log(`Payment link email sent to ${clientEmail}`)
       } catch (emailError: any) {
-        console.error(`❌ Failed to send email to ${clientEmail}:`, emailError.message)
-        // Don't fail the webhook, just log the error
+        console.error(`Failed to send email to ${clientEmail}:`, emailError.message)
+        await sendAlert({
+          subject: 'Payment link email failed',
+          context: `bookingId: ${booking.id}, clientEmail: ${clientEmail}`,
+          error: emailError.message,
+          route: '/api/bookla-webhook',
+        })
       }
     } else {
-      console.warn(`⚠️ No client email - cannot send payment link for booking ${booking.id}`)
-      console.warn(`💡 Checkout URL (manual): ${checkoutUrl}`)
+      console.warn(`No client email - cannot send payment link for booking ${booking.id}`)
+      console.warn(`Checkout URL (manual): ${checkoutUrl}`)
     }
 
     // Store in Database for tracking
     try {
-      const db = new DatabaseService()
-
-      await db.addBooking({
-        bookingId: booking.id,
-        clientEmail: clientEmail || '',
-        clientName: clientFullName || undefined,
-        clientPhone: clientPhone || undefined,
-        amount: totalAmount,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        checkoutUrl: checkoutUrl
-      })
-      console.log(`📝 Booking saved to database`)
+      await withRetry(
+        () => db.addBooking({
+          bookingId: booking.id,
+          clientEmail: clientEmail || '',
+          clientName: clientFullName || undefined,
+          clientPhone: clientPhone || undefined,
+          amount: totalAmount,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+          checkoutUrl: checkoutUrl
+        }),
+        { maxRetries: 2 }
+      )
+      console.log(`Booking saved to database`)
     } catch (dbError: any) {
-       console.error('❌ Failed to save booking to database:', dbError.message)
-       // Don't fail the request
+      console.error('Failed to save booking to database:', dbError.message)
+      await sendAlert({
+        subject: 'Booking DB save failed',
+        context: `bookingId: ${booking.id}, checkoutUrl: ${checkoutUrl}`,
+        error: dbError.message,
+        route: '/api/bookla-webhook',
+      })
     }
 
-    return NextResponse.json({ 
-      received: true, 
+    return NextResponse.json({
+      received: true,
       checkoutUrl,
       emailSent: !!clientEmail,
       bookingId: booking.id
@@ -272,4 +313,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
-

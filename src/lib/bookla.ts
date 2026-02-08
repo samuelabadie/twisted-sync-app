@@ -8,6 +8,7 @@ export class BooklaClient {
     this.companyId = companyId;
     this.client = axios.create({
       baseURL: 'https://eu.bookla.com/api/v1',
+      timeout: 15000,
       headers: {
         'x-api-key': apiKey,
         'Content-Type': 'application/json',

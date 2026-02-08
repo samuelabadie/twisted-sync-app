@@ -11,6 +11,7 @@ export class WebflowClient {
     this.siteId = siteId;
     this.client = axios.create({
       baseURL: 'https://api.webflow.com/v2',
+      timeout: 15000,
       headers: {
         'Authorization': `Bearer ${apiToken}`,
         'Accept': 'application/json',

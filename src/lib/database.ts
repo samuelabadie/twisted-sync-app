@@ -270,6 +270,34 @@ export class DatabaseService {
 
   // ===== BOOKINGS =====
 
+  async getBookingByBookingId(bookingId: string): Promise<BookingRecord | null> {
+    try {
+      const rows = await this.sql`
+        SELECT
+          booking_id, client_email, client_name, client_phone,
+          amount, status, checkout_url, created_at
+        FROM bookings
+        WHERE booking_id = ${bookingId}
+        LIMIT 1
+      `;
+      if (rows.length === 0) return null;
+      const row = rows[0];
+      return {
+        bookingId: row.booking_id,
+        clientEmail: row.client_email,
+        clientName: row.client_name,
+        clientPhone: row.client_phone,
+        amount: parseFloat(row.amount),
+        status: row.status,
+        checkoutUrl: row.checkout_url,
+        createdAt: row.created_at,
+      };
+    } catch (error) {
+      console.error(`Error fetching booking ${bookingId}:`, error);
+      return null;
+    }
+  }
+
   async addBooking(booking: BookingRecord): Promise<void> {
     try {
       await this.sql`
@@ -322,6 +350,7 @@ export class DatabaseService {
         FROM bookings
         WHERE status = 'pending'
         ORDER BY created_at ASC
+        LIMIT 100
       `;
 
       return rows.map((row: any) => ({

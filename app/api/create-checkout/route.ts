@@ -46,10 +46,7 @@ export async function POST(request: NextRequest) {
       }, 0)
     }
 
-    // If price is in cents (> 1000 for a typical service), convert to euros
-    if (totalPrice > 1000) {
-      totalPrice = totalPrice / 100
-    }
+    // Price from Webflow frontend is always in EUR, no conversion needed
 
     if (!bookingId) {
       return NextResponse.json(
@@ -106,8 +103,8 @@ export async function POST(request: NextRequest) {
       customer_email: clientEmail || undefined,
       success_url: successUrl,
       cancel_url: cancelUrl,
-      // Session expires in 15 minutes
-      expires_at: Math.floor(Date.now() / 1000) + (15 * 60),
+      // Session expires in 30 minutes (Stripe minimum requirement)
+      expires_at: Math.floor(Date.now() / 1000) + (30 * 60),
     })
 
     console.log(`Checkout session created for booking ${bookingId}: ${session.url}`)

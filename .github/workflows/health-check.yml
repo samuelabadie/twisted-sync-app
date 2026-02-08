@@ -1,34 +1,33 @@
-name: Cleanup Payments Cron
+name: Health Check
 
 on:
   schedule:
-    # Run every 15 minutes
-    - cron: '*/15 * * * *'
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
-  cleanup:
+  health:
     runs-on: ubuntu-latest
     steps:
-      - name: Call Cleanup API
-        id: cleanup
+      - name: Check API health
+        id: health
         run: |
           API_URL="${{ secrets.VERCEL_APP_URL }}"
           if [ -z "$API_URL" ]; then
             API_URL="https://twisted-sync-app.vercel.app"
           fi
 
-          HTTP_STATUS=$(curl -sf -o /tmp/response.json -w "%{http_code}" \
+          HTTP_STATUS=$(curl -sf -o /tmp/health.json -w "%{http_code}" \
             --max-time 30 \
-            -X GET "${API_URL}/api/cleanup-payments" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+            -X GET "${API_URL}/api/health")
 
           echo "status=$HTTP_STATUS" >> $GITHUB_OUTPUT
           echo "Response (HTTP $HTTP_STATUS):"
-          cat /tmp/response.json 2>/dev/null || echo "(no response body)"
+          cat /tmp/health.json 2>/dev/null || echo "(no response body)"
 
           if [ "$HTTP_STATUS" != "200" ]; then
-            echo "Cleanup API returned HTTP $HTTP_STATUS"
+            echo "Health check returned HTTP $HTTP_STATUS"
             exit 1
           fi
 
@@ -54,6 +53,6 @@ jobs:
             -d "{
               \"sender\": {\"name\": \"Twisted Sync\", \"email\": \"${SENDER}\"},
               \"to\": [{\"email\": \"${ALERT_EMAIL}\"}],
-              \"subject\": \"[TWISTED ALERT] Cleanup cron job failed\",
-              \"textContent\": \"Le cron de cleanup des paiements a echoue a ${TIMESTAMP}.\\n\\nVerifier les logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
+              \"subject\": \"[TWISTED ALERT] Health check failed - app may be down\",
+              \"textContent\": \"Le health check de l'app a echoue a ${TIMESTAMP}.\\nL'application est peut-etre hors service.\\n\\nVerifier les logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
             }"

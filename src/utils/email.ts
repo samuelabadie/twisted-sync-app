@@ -28,9 +28,12 @@ export class EmailService {
     `;
 
     if (this.apiKey) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
       try {
         const response = await fetch('https://api.brevo.com/v3/smtp/email', {
           method: 'POST',
+          signal: controller.signal,
           headers: {
             'accept': 'application/json',
             'api-key': this.apiKey,
@@ -54,6 +57,8 @@ export class EmailService {
       } catch (error: any) {
         logger.error('Failed to send email via Brevo API', { error: error.message });
         throw error;
+      } finally {
+        clearTimeout(timeoutId);
       }
     } else {
       logger.info(`[MOCK EMAIL] To: ${to} | Subject: ${subject} | Link: ${checkoutUrl}`);
@@ -105,9 +110,12 @@ L'équipe Twisted`;
     `;
 
     if (this.apiKey) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
       try {
         const response = await fetch('https://api.brevo.com/v3/smtp/email', {
           method: 'POST',
+          signal: controller.signal,
           headers: {
             'accept': 'application/json',
             'api-key': this.apiKey,
@@ -131,6 +139,8 @@ L'équipe Twisted`;
       } catch (error: any) {
         logger.error('Failed to send confirmation email via Brevo API', { error: error.message });
         throw error;
+      } finally {
+        clearTimeout(timeoutId);
       }
     } else {
       logger.info(`[MOCK EMAIL] To: ${to} | Subject: ${subject}`);

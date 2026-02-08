@@ -3,6 +3,9 @@ import Stripe from 'stripe'
 import { BooklaClient } from '../../../src/lib/bookla'
 import { DatabaseService } from '../../../src/lib/database'
 import { emailService } from '../../../src/utils/email'
+import { withRetry } from '../../../src/utils/retry'
+import { sendAlert } from '../../../src/utils/alerts'
+import { formatDateTimeFR } from '../../../src/utils/date'
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -58,25 +61,37 @@ export async function POST(request: NextRequest) {
           process.env.BOOKLA_COMPANY_ID!
         )
 
-        // 1. Confirm in Bookla (Best effort)
+        // 1. Confirm in Bookla (with retry + alert on failure)
         try {
-          await bookla.confirmBooking(bookingId)
-          console.log(`✅ Booking ${bookingId} confirmed in Bookla.`)
+          await withRetry(() => bookla.confirmBooking(bookingId), { maxRetries: 3 })
+          console.log(`Booking ${bookingId} confirmed in Bookla.`)
         } catch (booklaError: any) {
-           console.error(`❌ Failed to confirm in Bookla: ${booklaError.message}`)
-           // Continue to update DB anyway
+          console.error(`Failed to confirm in Bookla: ${booklaError.message}`)
+          await sendAlert({
+            subject: 'Bookla confirmation failed after payment',
+            context: `bookingId: ${bookingId}, stripeSession: ${session.id}`,
+            error: booklaError.message,
+            route: '/api/stripe-webhook',
+          })
+          // Continue to update DB -- admin is now notified
         }
 
-        // 2. Update Database status (Source of Truth)
+        // 2. Update Database status (Source of Truth, with alert on failure)
         try {
           const db = new DatabaseService()
           await db.updateBookingStatus(bookingId, 'paid')
-          console.log(`✅ Booking ${bookingId} marked as PAID in database.`)
+          console.log(`Booking ${bookingId} marked as PAID in database.`)
         } catch (dbError: any) {
-           console.error(`❌ Failed to update booking status in database: ${dbError.message}`)
+          console.error(`Failed to update booking status in database: ${dbError.message}`)
+          await sendAlert({
+            subject: 'DB update failed after Stripe payment',
+            context: `bookingId: ${bookingId}, stripeSession: ${session.id}`,
+            error: dbError.message,
+            route: '/api/stripe-webhook',
+          })
         }
 
-        // 3. Send confirmation email with booking details
+        // 3. Send confirmation email with booking details (with retry, no alert)
         try {
           const booking = await bookla.getBooking(bookingId)
           console.log('Booking details:', JSON.stringify(booking))
@@ -87,37 +102,32 @@ export async function POST(request: NextRequest) {
           const resourceName = booking.resource?.name
           const amountPaid = (session.amount_total || 0) / 100 // Convert cents to EUR
 
-          // Format date/time
+          // Format date/time with explicit Paris timezone
           let dateTime = 'Date à confirmer'
           if (booking.startTime) {
-            const date = new Date(booking.startTime)
-            dateTime = date.toLocaleDateString('fr-FR', {
-              weekday: 'long',
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            })
+            dateTime = formatDateTimeFR(new Date(booking.startTime))
           }
 
           if (clientEmail) {
-            await emailService.sendPaymentConfirmation(clientEmail, {
-              serviceName,
-              dateTime,
-              resourceName,
-              amountPaid
-            })
-            console.log(`✅ Confirmation email sent to ${clientEmail}`)
+            await withRetry(
+              () => emailService.sendPaymentConfirmation(clientEmail, {
+                serviceName,
+                dateTime,
+                resourceName,
+                amountPaid
+              }),
+              { maxRetries: 2 }
+            )
+            console.log(`Confirmation email sent to ${clientEmail}`)
           } else {
-            console.warn('⚠️ No client email found, skipping confirmation email')
+            console.warn('No client email found, skipping confirmation email')
           }
         } catch (emailError: any) {
-          console.error(`❌ Failed to send confirmation email: ${emailError.message}`)
-          // Don't fail the webhook if email fails
+          console.error(`Failed to send confirmation email: ${emailError.message}`)
+          // Email failure is not critical -- booking is already confirmed
         }
       } else {
-        console.warn('⚠️ Checkout Session completed but no bookingId in metadata!')
+        console.warn('Checkout Session completed but no bookingId in metadata!')
         console.warn('This means the Stripe session was not created with booking metadata.')
       }
     } else {
@@ -130,4 +140,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
-

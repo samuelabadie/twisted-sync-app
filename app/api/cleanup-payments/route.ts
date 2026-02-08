@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { BooklaClient } from '../../../src/lib/bookla'
 import { DatabaseService } from '../../../src/lib/database'
+import { withRetry } from '../../../src/utils/retry'
+import { sendAlert } from '../../../src/utils/alerts'
 
 export async function GET(request: NextRequest) {
   // Allow execution via query param OR header
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     const db = new DatabaseService()
 
-    // Get pending bookings from our database
+    // Get pending bookings from our database (limited to 100 per run)
     const pendingBookings = await db.getPendingBookings()
     console.log(`Found ${pendingBookings.length} pending bookings in database.`)
 
@@ -45,17 +47,24 @@ export async function GET(request: NextRequest) {
       if (age > TIMEOUT_MS) {
         console.log(`Cancelling expired booking ${booking.bookingId} (age: ${Math.round(age / 60000)}m)`)
 
-        // 1. Cancel in Bookla
         try {
-            await bookla.cancelBooking(booking.bookingId)
-            console.log('Cancelled in Bookla.')
-        } catch (booklaError: any) {
-            console.error(`Failed to cancel in Bookla (maybe already cancelled?): ${booklaError.message}`)
-        }
+          // 1. Cancel in Bookla first (with retry)
+          await withRetry(() => bookla.cancelBooking(booking.bookingId), { maxRetries: 2 })
+          console.log('Cancelled in Bookla.')
 
-        // 2. Update Database
-        await db.updateBookingStatus(booking.bookingId, 'cancelled')
-        cancelledCount++
+          // 2. Only update DB if Bookla cancellation succeeded
+          await db.updateBookingStatus(booking.bookingId, 'cancelled')
+          cancelledCount++
+        } catch (error: any) {
+          console.error(`Failed to cancel booking ${booking.bookingId}: ${error.message}`)
+          await sendAlert({
+            subject: 'Cleanup: Bookla cancellation failed',
+            context: `bookingId: ${booking.bookingId}, age: ${Math.round(age / 60000)}m`,
+            error: error.message,
+            route: '/api/cleanup-payments',
+          })
+          // Skip DB update -- booking stays pending, will be retried next cron run
+        }
       }
     }
 
