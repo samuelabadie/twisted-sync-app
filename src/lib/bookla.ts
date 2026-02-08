@@ -406,11 +406,13 @@ export class BooklaClient {
     try {
       const response = await this.client.get(`/companies/${this.companyId}/services/${serviceId}/links`);
       const links = response.data;
-      // Handle both array and object responses
+      // Handle various response formats
       if (Array.isArray(links)) {
         return links.map((link: any) => link.resourceID);
       }
-      // If response is an object with a data property
+      if (links && Array.isArray(links.links)) {
+        return links.links.map((link: any) => link.resourceID);
+      }
       if (links && Array.isArray(links.data)) {
         return links.data.map((link: any) => link.resourceID);
       }
@@ -428,7 +430,8 @@ export class BooklaClient {
     try {
       // First get existing links for this service
       const response = await this.client.get(`/companies/${this.companyId}/services/${serviceId}/links`);
-      const links = response.data || [];
+      const raw = response.data;
+      const links = Array.isArray(raw) ? raw : (raw?.links || raw?.data || []);
 
       // Find the link to delete
       const linkToDelete = links.find((link: any) => link.resourceID === resourceId);

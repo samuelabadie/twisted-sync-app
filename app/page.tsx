@@ -52,6 +52,12 @@ interface ServiceType {
   serviceIds: string[]
 }
 
+interface Resource {
+  id: string
+  name: string
+  color?: string
+}
+
 // Options disponibles (doit correspondre aux slugs du backend)
 const AVAILABLE_OPTIONS = [
   { slug: 'coupe-des-pointes', name: 'Coupe des pointes (+10€)' },
@@ -85,6 +91,14 @@ export default function Dashboard() {
   const [resources, setResources] = useState<any[]>([])
   const [editingService, setEditingService] = useState<EditingService | null>(null)
   const [savingService, setSavingService] = useState(false)
+
+  // Resource management modal state
+  const [resourceModalSlug, setResourceModalSlug] = useState<string | null>(null)
+  const [resourceModalName, setResourceModalName] = useState('')
+  const [linkedResources, setLinkedResources] = useState<Resource[]>([])
+  const [availableResources, setAvailableResources] = useState<Resource[]>([])
+  const [loadingResources, setLoadingResources] = useState(false)
+  const [togglingResource, setTogglingResource] = useState<string | null>(null)
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -284,6 +298,70 @@ export default function Dashboard() {
       setError(err.message)
     } finally {
       setSavingService(false)
+    }
+  }
+
+  async function openResourceModal(slug: string, name: string) {
+    setResourceModalSlug(slug)
+    setResourceModalName(name)
+    setLoadingResources(true)
+    try {
+      const res = await fetch(`/api/services/${encodeURIComponent(slug)}/resources`)
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setLinkedResources(data.linked || [])
+      setAvailableResources(data.available || [])
+    } catch (err: any) {
+      setError(err.message)
+      setResourceModalSlug(null)
+    } finally {
+      setLoadingResources(false)
+    }
+  }
+
+  async function handleLinkResource(resourceId: string) {
+    if (!resourceModalSlug) return
+    setTogglingResource(resourceId)
+    try {
+      const res = await fetch(`/api/services/${encodeURIComponent(resourceModalSlug)}/resources`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resourceId }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+
+      const resource = availableResources.find(r => r.id === resourceId)
+      if (resource) {
+        setLinkedResources(prev => [...prev, resource].sort((a, b) => a.name.localeCompare(b.name)))
+        setAvailableResources(prev => prev.filter(r => r.id !== resourceId))
+      }
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setTogglingResource(null)
+    }
+  }
+
+  async function handleUnlinkResource(resourceId: string) {
+    if (!resourceModalSlug) return
+    setTogglingResource(resourceId)
+    try {
+      const res = await fetch(`/api/services/${encodeURIComponent(resourceModalSlug)}/resources?resourceId=${resourceId}`, {
+        method: 'DELETE',
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+
+      const resource = linkedResources.find(r => r.id === resourceId)
+      if (resource) {
+        setAvailableResources(prev => [...prev, resource].sort((a, b) => a.name.localeCompare(b.name)))
+        setLinkedResources(prev => prev.filter(r => r.id !== resourceId))
+      }
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setTogglingResource(null)
     }
   }
 
@@ -488,6 +566,14 @@ export default function Dashboard() {
                     <span className={`text-xs font-medium ${service.visible ? 'text-emerald-400' : 'text-stone-500'}`}>
                       {togglingVisibility === service.name ? '...' : (service.visible ? 'Visible' : 'Masqué')}
                     </span>
+
+                    {/* Resources Button */}
+                    <button
+                      onClick={() => openResourceModal(service.slug, service.name)}
+                      className="px-4 py-2 bg-blue-900/50 hover:bg-blue-800/70 text-blue-200 font-medium rounded-lg transition-all duration-300 border border-blue-800/50 hover:border-blue-700 text-sm"
+                    >
+                      👥 Ressources
+                    </button>
 
                     {/* Edit Button */}
                     <button
@@ -760,6 +846,98 @@ export default function Dashboard() {
                 {updatingType ? 'Mise à jour...' : 'Fermer'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resource Management Modal */}
+      {resourceModalSlug && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in"
+          onClick={() => setResourceModalSlug(null)}
+        >
+          <div
+            className="bg-stone-900/95 backdrop-blur-sm border border-stone-800 rounded-2xl shadow-xl p-8 w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-amber-100">{resourceModalName}</h2>
+                <p className="text-sm text-stone-400">Gestion des ressources (parent + options)</p>
+              </div>
+              <button
+                onClick={() => setResourceModalSlug(null)}
+                className="p-2 text-stone-400 hover:text-stone-200 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {loadingResources ? (
+              <div className="text-center py-8">
+                <div className="animate-spin text-3xl mb-3">🔄</div>
+                <p className="text-stone-400">Chargement des ressources...</p>
+              </div>
+            ) : (
+              <>
+                {/* Linked Resources */}
+                <div className="mb-6">
+                  <h3 className="text-sm font-semibold text-stone-300 uppercase tracking-wider mb-3">
+                    Ressources assignées ({linkedResources.length})
+                  </h3>
+                  {linkedResources.length === 0 ? (
+                    <p className="text-stone-500 text-sm py-2">Aucune ressource assignée</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {linkedResources.map(res => (
+                        <span
+                          key={res.id}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium text-stone-900"
+                          style={{ backgroundColor: res.color || '#CFC4E8' }}
+                        >
+                          {res.name}
+                          <button
+                            onClick={() => handleUnlinkResource(res.id)}
+                            disabled={togglingResource === res.id}
+                            className="w-5 h-5 rounded-full bg-red-600/80 hover:bg-red-500 text-white flex items-center justify-center text-xs transition-colors"
+                          >
+                            {togglingResource === res.id ? '·' : '✕'}
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Available Resources */}
+                <div>
+                  <h3 className="text-sm font-semibold text-stone-300 uppercase tracking-wider mb-3">
+                    Ressources disponibles ({availableResources.length})
+                  </h3>
+                  {availableResources.length === 0 ? (
+                    <p className="text-stone-500 text-sm py-2">Toutes les ressources sont assignées</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {availableResources.map(res => (
+                        <span
+                          key={res.id}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border border-stone-700 text-stone-300 bg-stone-800/50"
+                        >
+                          {res.name}
+                          <button
+                            onClick={() => handleLinkResource(res.id)}
+                            disabled={togglingResource === res.id}
+                            className="w-5 h-5 rounded-full bg-green-600/80 hover:bg-green-500 text-white flex items-center justify-center text-xs transition-colors"
+                          >
+                            {togglingResource === res.id ? '·' : '+'}
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
