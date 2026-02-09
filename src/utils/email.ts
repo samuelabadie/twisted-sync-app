@@ -17,12 +17,11 @@ export class EmailService {
 
   async sendPaymentLink(to: string, checkoutUrl: string, bookingId: string) {
     const subject = `Paiement de votre acompte - Réservation Twisted`;
-    const textContent = `Bonjour,\n\nMerci pour votre réservation.\n\nPour la confirmer, veuillez régler l'acompte de 30% via ce lien sécurisé :\n${checkoutUrl}\n\nCe lien est valable 15 minutes.\n\nCordialement,\nL'équipe Twisted`;
+    const textContent = `Bonjour,\n\nMerci pour votre réservation.\n\nPour la confirmer, veuillez régler l'acompte de 30% en cliquant sur ce lien :\n${checkoutUrl}\n\nCe lien est valable 15 minutes.\n\nCordialement,\nL'équipe Twisted`;
     const htmlContent = `
       <p>Bonjour,</p>
       <p>Merci pour votre réservation.</p>
-      <p>Pour la confirmer, veuillez régler l'acompte de 30% via ce lien sécurisé :</p>
-      <p><a href="${checkoutUrl}">${checkoutUrl}</a></p>
+      <p>Pour la confirmer, veuillez régler l'acompte de 30% en <a href="${checkoutUrl}" style="color: #d97706; font-weight: bold;">cliquant ici</a>.</p>
       <p>Ce lien est valable 15 minutes.</p>
       <p>Cordialement,<br>L'équipe Twisted</p>
     `;
