@@ -21,7 +21,7 @@ export class EmailService {
     const htmlContent = `
       <p>Bonjour,</p>
       <p>Merci pour votre réservation.</p>
-      <p>Pour la confirmer, veuillez régler l'acompte de 30% en <a href="${checkoutUrl}" style="color: #d97706; font-weight: bold;">cliquant ici</a>.</p>
+      <p>Pour la confirmer, veuillez régler l'acompte de 30% en <a href="${checkoutUrl}" style="color: #2563eb; font-weight: bold;">cliquant ici</a>.</p>
       <p>Ce lien est valable 15 minutes.</p>
       <p>Cordialement,<br>L'équipe Twisted</p>
     `;
@@ -74,12 +74,16 @@ export class EmailService {
       dateTime: string;
       resourceName?: string;
       amountPaid: number;
+      totalPrice?: number;
     }
   ) {
     const subject = `Confirmation de votre réservation - Twisted`;
 
     const formattedDate = bookingDetails.dateTime;
     const employeeInfo = bookingDetails.resourceName ? `avec ${bookingDetails.resourceName}` : '';
+    const remaining = bookingDetails.totalPrice
+      ? bookingDetails.totalPrice - bookingDetails.amountPaid
+      : null;
 
     const textContent = `Bonjour,
 
@@ -88,7 +92,7 @@ Merci pour votre paiement ! Votre réservation est confirmée.
 Récapitulatif :
 - Prestation : ${bookingDetails.serviceName}
 - Date et heure : ${formattedDate} ${employeeInfo}
-- Acompte payé : ${bookingDetails.amountPaid.toFixed(2)}€
+- Acompte payé : ${bookingDetails.amountPaid.toFixed(2)}€${remaining !== null ? `\n- Reste à payer au salon : ${remaining.toFixed(2)}€` : ''}
 
 À très bientôt chez Twisted !
 
@@ -103,6 +107,7 @@ L'équipe Twisted`;
         <li><strong>Prestation :</strong> ${bookingDetails.serviceName}</li>
         <li><strong>Date et heure :</strong> ${formattedDate} ${employeeInfo}</li>
         <li><strong>Acompte payé :</strong> ${bookingDetails.amountPaid.toFixed(2)}€</li>
+        ${remaining !== null ? `<li><strong>Reste à payer au salon :</strong> ${remaining.toFixed(2)}€</li>` : ''}
       </ul>
       <p>À très bientôt chez Twisted !</p>
       <p>Cordialement,<br>L'équipe Twisted</p>

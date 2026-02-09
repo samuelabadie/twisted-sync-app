@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
           const serviceName = booking.service?.name || 'Prestation'
           const resourceName = booking.resource?.name
           const amountPaid = (session.amount_total || 0) / 100 // Convert cents to EUR
+          const totalPrice = session.metadata?.totalPrice ? parseFloat(session.metadata.totalPrice) : undefined
 
           // Format date/time with explicit Paris timezone
           let dateTime = 'Date à confirmer'
@@ -114,7 +115,8 @@ export async function POST(request: NextRequest) {
                 serviceName,
                 dateTime,
                 resourceName,
-                amountPaid
+                amountPaid,
+                totalPrice
               }),
               { maxRetries: 2 }
             )
